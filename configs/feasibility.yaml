@@ -5,9 +5,18 @@ study:
   observation_window_hours: 6
   prediction_horizon_hours: 12
   index_time: icu_admission
+  landmark_time: icu_admission_plus_6_hours
   adult_only: true
   minimum_age: 18
-  one_stay_per_patient: first_eligible_icu_stay
+  sampling_unit: first_eligible_icu_unit_stay_per_hospital_admission
+
+followup:
+  administrative_end_hours_from_icu_admission: 18
+  end_at_icu_discharge: true
+  end_at_death: true
+  discharge_without_outcome: negative_for_in_unit_escalation
+  death_without_outcome: competing_event_excluded_from_primary_binary_model
+  require_alive_and_in_icu_at_landmark: true
 
 outcomes:
   invasive_mechanical_ventilation:
@@ -37,8 +46,16 @@ data_sources:
       version: "1.1.1"
 
 models_phase_0:
-  - logistic_regression
-  - catboost
+  logistic_regression:
+    enabled: true
+    class_weight: balanced
+    regularization_c: 1.0
+  catboost:
+    enabled: true
+    iterations: 500
+    depth: 6
+    learning_rate: 0.03
+    auto_class_weights: Balanced
 
 validation:
   development_split: temporal
@@ -46,6 +63,8 @@ validation:
   hospital_level_analysis: true
   bootstrap_iterations: 2000
   confidence_level: 0.95
+  identifiers_for_evaluation_only: true
+  prohibit_cross_admission_chronology_inference: true
 
 primary_metrics:
   - pr_auc
@@ -79,3 +98,5 @@ reporting:
   assess_with_probast_ai: true
   prohibit_best_fold_reporting: true
   prohibit_test_set_tuning: true
+  report_competing_events: true
+  report_protocol_amendments: true
