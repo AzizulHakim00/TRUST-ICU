@@ -47,7 +47,7 @@ def _require_columns(frame: pd.DataFrame, required: set[str], name: str) -> None
 
 def build_landmark_cohort(
     stays: pd.DataFrame,
-    spec: LandmarkSpec = LandmarkSpec(),
+    spec: LandmarkSpec | None = None,
 ) -> pd.DataFrame:
     """Build one first eligible ICU unit stay per hospital admission.
 
@@ -56,7 +56,8 @@ def build_landmark_cohort(
     or the administrative 18-hour boundary. Cross-admission chronology is never inferred.
     """
 
-    spec.validate()
+    resolved_spec = spec or LandmarkSpec()
+    resolved_spec.validate()
     _require_columns(stays, _REQUIRED_STAY_COLUMNS, "stays")
     frame = stays.copy()
     for column in ("icu_admit_time", "icu_discharge_time", "death_time"):
@@ -70,10 +71,10 @@ def build_landmark_cohort(
         raise ValueError("Every ICU discharge time must be after ICU admission time.")
 
     frame["landmark_time"] = frame["icu_admit_time"] + pd.to_timedelta(
-        spec.observation_end_minutes, unit="m"
+        resolved_spec.observation_end_minutes, unit="m"
     )
     frame["administrative_end_time"] = frame["icu_admit_time"] + pd.to_timedelta(
-        spec.prediction_end_minutes, unit="m"
+        resolved_spec.prediction_end_minutes, unit="m"
     )
 
     alive_at_landmark = pd.Series(True, index=frame.index)
@@ -83,7 +84,7 @@ def build_landmark_cohort(
         )
 
     eligible = (
-        frame["age"].ge(spec.minimum_age)
+        frame["age"].ge(resolved_spec.minimum_age)
         & frame["icu_discharge_time"].gt(frame["landmark_time"])
         & alive_at_landmark
     )
