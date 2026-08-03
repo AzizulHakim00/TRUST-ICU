@@ -3,13 +3,42 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from pathlib import Path
+from typing import Any, Final
 
 import numpy as np
 import pandas as pd
+import yaml
 
 _REQUIRED_OBSERVATION_COLUMNS: Final = {"stay_id", "variable", "event_time", "value"}
-_SUMMARIES: Final = ("first", "last", "min", "max", "mean", "slope", "count")
+_SUMMARIES: Final = ("first", "last", "min", "max", "mean", "slope_per_hour", "count")
+
+
+@dataclass(frozen=True)
+class VariableSpec:
+    name: str
+    canonical_unit: str
+    plausible_min: float
+    plausible_max: float
+
+
+@dataclass(frozen=True)
+class FeatureContract:
+    version: str
+    observation_start_minutes: int
+    observation_end_minutes: int
+    variables: tuple[VariableSpec, ...]
+
+    @property
+    def variable_names(self) -> tuple[str, ...]:
+        return tuple(variable.name for variable in self.variables)
+
+    @property
+    def plausible_bounds(self) -> dict[str, tuple[float, float]]:
+        return {
+            variable.name: (variable.plausible_min, variable.plausible_max)
+            for variable in self.variables
+        }
 
 
 @dataclass(frozen=True)
@@ -19,8 +48,61 @@ class FeatureMatrixAudit:
     observation_rows_used: int
     rows_before_icu: int
     rows_at_or_after_landmark: int
+    out_of_range_rows: int
     unknown_variables: tuple[str, ...]
     duplicate_stay_variable_time_rows: int
+
+
+def load_feature_contract(path: str | Path) -> FeatureContract:
+    """Load and validate the public Phase 0 feature contract."""
+
+    contract_path = Path(path)
+    if not contract_path.is_file():
+        raise FileNotFoundError(f"Feature contract not found: {contract_path}")
+    with contract_path.open("r", encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle)
+    if not isinstance(raw, dict):
+        raise ValueError("Feature-contract root must be a mapping.")
+    window = raw.get("observation_window")
+    if not isinstance(window, dict):
+        raise ValueError("observation_window must be a mapping.")
+    start = int(window.get("start_minutes", -1))
+    end = int(window.get("end_minutes", -1))
+    if start != 0 or end != 360 or window.get("interval") != "left_closed_right_open":
+        raise ValueError("Phase 0 feature window must be [0, 360) minutes.")
+
+    aggregation = raw.get("aggregation")
+    if not isinstance(aggregation, dict):
+        raise ValueError("aggregation must be a mapping.")
+    summaries = tuple(aggregation.get("summaries", ()))
+    if summaries != _SUMMARIES:
+        raise ValueError(f"Aggregation summaries must equal {_SUMMARIES}; got {summaries}.")
+
+    raw_variables = raw.get("variables")
+    if not isinstance(raw_variables, dict) or not raw_variables:
+        raise ValueError("variables must be a non-empty mapping.")
+    variables: list[VariableSpec] = []
+    for name, values in raw_variables.items():
+        if not isinstance(values, dict):
+            raise ValueError(f"Variable {name!r} must be a mapping.")
+        lower = float(values["plausible_min"])
+        upper = float(values["plausible_max"])
+        if not np.isfinite(lower) or not np.isfinite(upper) or lower >= upper:
+            raise ValueError(f"Invalid plausible range for {name}: [{lower}, {upper}].")
+        variables.append(
+            VariableSpec(
+                name=str(name),
+                canonical_unit=str(values["canonical_unit"]),
+                plausible_min=lower,
+                plausible_max=upper,
+            )
+        )
+    return FeatureContract(
+        version=str(raw.get("contract_version", "")),
+        observation_start_minutes=start,
+        observation_end_minutes=end,
+        variables=tuple(variables),
+    )
 
 
 def _slope_per_hour(times: pd.Series, values: pd.Series) -> float:
@@ -37,6 +119,8 @@ def build_feature_matrix(
     cohort: pd.DataFrame,
     observations: pd.DataFrame,
     variables: list[str] | tuple[str, ...],
+    *,
+    plausible_bounds: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[pd.DataFrame, FeatureMatrixAudit]:
     """Aggregate observations strictly before each stay's landmark.
 
@@ -56,6 +140,14 @@ def build_feature_matrix(
     if not canonical:
         raise ValueError("At least one canonical variable is required.")
 
+    bounds = plausible_bounds or {}
+    unknown_bounds = sorted(set(bounds) - set(canonical))
+    if unknown_bounds:
+        raise ValueError(f"Plausible bounds include unknown variables: {unknown_bounds}")
+    for variable, (lower, upper) in bounds.items():
+        if not np.isfinite(lower) or not np.isfinite(upper) or lower >= upper:
+            raise ValueError(f"Invalid plausible bounds for {variable}: [{lower}, {upper}].")
+
     obs = observations.copy()
     obs["event_time"] = pd.to_datetime(obs["event_time"], errors="coerce", utc=True)
     obs["value"] = pd.to_numeric(obs["value"], errors="coerce")
@@ -63,6 +155,14 @@ def build_feature_matrix(
         raise ValueError("Observation event times must be parseable.")
     unknown = tuple(sorted(set(obs["variable"].astype(str)) - set(canonical)))
     obs = obs.loc[obs["variable"].isin(canonical)].copy()
+
+    out_of_range = pd.Series(False, index=obs.index)
+    for variable, (lower, upper) in bounds.items():
+        mask = obs["variable"].eq(variable) & obs["value"].notna() & (
+            obs["value"].lt(lower) | obs["value"].gt(upper)
+        )
+        out_of_range |= mask
+    obs.loc[out_of_range, "value"] = np.nan
 
     windows = cohort[["stay_id", "icu_admit_time", "landmark_time"]].copy()
     windows["icu_admit_time"] = pd.to_datetime(
@@ -89,7 +189,7 @@ def build_feature_matrix(
         .sort_values(["stay_id", "variable", "event_time"], kind="mergesort")
     )
 
-    rows: list[dict[str, float | int]] = []
+    rows: list[dict[str, Any]] = []
     for (stay_id, variable), group in usable.groupby(
         ["stay_id", "variable"], sort=False
     ):
@@ -104,7 +204,7 @@ def build_feature_matrix(
                 "min": float(values.min()),
                 "max": float(values.max()),
                 "mean": float(values.mean()),
-                "slope": _slope_per_hour(times, values),
+                "slope_per_hour": _slope_per_hour(times, values),
                 "count": int(len(values)),
                 "hours_since_last": float(
                     (group["landmark_time"].iloc[0] - times.iloc[-1]).total_seconds()
@@ -139,6 +239,7 @@ def build_feature_matrix(
         observation_rows_used=len(usable),
         rows_before_icu=int(before_icu.sum()),
         rows_at_or_after_landmark=int(at_or_after.sum()),
+        out_of_range_rows=int(out_of_range.sum()),
         unknown_variables=unknown,
         duplicate_stay_variable_time_rows=duplicate_count,
     )
