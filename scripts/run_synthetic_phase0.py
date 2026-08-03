@@ -132,6 +132,8 @@ def run(n: int, seed: int) -> dict[str, object]:
         )
         report["catboost"] = asdict(catboost_metrics)
     except RuntimeError as exc:
+        if "CatBoost is not installed" not in str(exc):
+            raise
         report["catboost"] = {"status": "not_run", "reason": str(exc)}
     return report
 
