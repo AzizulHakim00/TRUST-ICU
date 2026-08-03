@@ -1,7 +1,9 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
-from trust_icu.features import build_feature_matrix
+from trust_icu.features import build_feature_matrix, load_feature_contract
 
 
 def _cohort() -> pd.DataFrame:
@@ -55,3 +57,30 @@ def test_duplicate_timestamp_values_are_mean_collapsed() -> None:
     matrix, audit = build_feature_matrix(_cohort(), observations, ["lactate"])
     assert matrix.set_index("stay_id").loc[1, "lactate__last"] == 3.0
     assert audit.duplicate_stay_variable_time_rows == 2
+
+
+def test_public_feature_contract_loads() -> None:
+    contract_path = Path(__file__).resolve().parents[1] / "schemas" / "phase0_features.yaml"
+    contract = load_feature_contract(contract_path)
+    assert contract.observation_end_minutes == 360
+    assert "heart_rate" in contract.variable_names
+    assert contract.plausible_bounds["spo2"] == (50.0, 100.0)
+
+
+def test_out_of_range_values_are_audited_and_removed() -> None:
+    observations = pd.DataFrame(
+        {
+            "stay_id": [1],
+            "variable": ["spo2"],
+            "event_time": pd.to_datetime(["2026-01-01 03:00Z"]),
+            "value": [140],
+        }
+    )
+    matrix, audit = build_feature_matrix(
+        _cohort(),
+        observations,
+        ["spo2"],
+        plausible_bounds={"spo2": (50, 100)},
+    )
+    assert matrix.set_index("stay_id").loc[1, "spo2__missing"] == 1
+    assert audit.out_of_range_rows == 1
