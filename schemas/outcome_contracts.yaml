@@ -1,0 +1,159 @@
+contract_version: "0.2.0"
+created_on: "2026-08-04"
+observation_window:
+  start_hours: 0
+  end_hours: 6
+  interval: left_closed_right_open
+prediction_window:
+  start_hours: 6
+  end_hours: 18
+  interval: left_closed_right_open
+
+status_values:
+  - upstream_concept_verified
+  - vocabulary_discovery_required
+  - pending_credentialed_validation
+  - locally_validated
+  - locked
+
+locking_rule:
+  require_mimic_locally_validated: true
+  require_eicu_locally_validated: true
+  require_clinical_equivalence_review: true
+  require_synthetic_timeline_tests: true
+  prohibit_model_training_before_lock: true
+
+upstream_sources:
+  mimic_code:
+    repository: MIT-LCP/mimic-code
+    commit: 3a914fce11e05888a4b659c7788e207bc34d1728
+  eicu_code:
+    repository: MIT-LCP/eicu-code
+    commit: 34cece8c70771a3fab48da84d4c47f0e133ca021
+
+outcomes:
+  invasive_mechanical_ventilation:
+    task_status: pending_credentialed_validation
+    clinical_event: first new invasive positive-pressure ventilation episode
+    exclusion: any invasive ventilation active during [0h, 6h)
+    positive_window: first qualifying start in [6h, 18h)
+    mimic:
+      status: upstream_concept_verified
+      source_relation: mimiciv_derived.ventilation
+      time_fields: [starttime, endtime]
+      qualifying_rule: ventilation_status = 'InvasiveVent'
+      provenance_path: mimic-iv/concepts/treatment/ventilation.sql
+      local_checks:
+        - source relation exists and required columns are present
+        - no qualifying episode overlaps the observation window in eligible stays
+        - first prediction-window start is unique per stay
+    eicu:
+      status: vocabulary_discovery_required
+      primary_sources:
+        - respiratoryCare.ventStartOffset
+        - respiratoryCare.ventEndOffset
+        - respiratoryCare.airwayType
+      corroborating_sources:
+        - respiratoryCharting.respChartOffset
+        - respiratoryCharting.respChartValueLabel
+        - respiratoryCharting.respChartValue
+        - treatment.treatmentOffset
+        - treatment.treatmentString
+      provenance_paths:
+        - website/content/eicutables/respiratoryCare.md
+        - website/content/eicutables/respiratoryCharting.md
+        - website/content/eicutables/treatment.md
+      local_checks:
+        - inspect airwayType frequencies and manually classify invasive airways
+        - inspect treatment paths containing mechanical ventilation or intubation
+        - inspect respiratory labels indicating invasive ventilation
+        - quantify agreement among independent sources
+        - clinician review of final positive and negative code lists
+
+  vasopressor_initiation:
+    task_status: pending_credentialed_validation
+    clinical_event: first new continuous vasopressor infusion
+    exclusion: any qualifying vasopressor active during [0h, 6h)
+    positive_window: first qualifying start in [6h, 18h)
+    canonical_agents:
+      - norepinephrine
+      - epinephrine
+      - vasopressin
+      - phenylephrine
+      - dopamine
+    excluded_agents:
+      - dobutamine
+      - milrinone
+      - nitroglycerin
+      - nicardipine
+    mimic:
+      status: upstream_concept_verified
+      source_relations:
+        - mimiciv_derived.norepinephrine
+        - mimiciv_derived.epinephrine
+        - mimiciv_derived.vasopressin
+        - mimiciv_derived.phenylephrine
+        - mimiciv_derived.dopamine
+      time_fields: [starttime, endtime]
+      qualifying_rule: non-null interval with positive documented rate
+      provenance_root: mimic-iv/concepts/medication
+      local_checks:
+        - all five source relations exist
+        - rate and interval fields are non-null for qualifying events
+        - duplicate overlapping intervals are collapsed by agent and stay
+    eicu:
+      status: vocabulary_discovery_required
+      primary_source: infusionDrug
+      time_field: infusionOffset
+      name_field: drugName
+      rate_fields: [drugRate, infusionRate]
+      provenance_path: website/content/eicutables/infusionDrug.md
+      local_checks:
+        - enumerate normalized drugName values for canonical agents
+        - distinguish active administration from zero, stopped, held, or malformed rates
+        - quantify hospital interface coverage before treating absence as no exposure
+        - clinician review of aliases and exclusions
+
+  renal_replacement_therapy:
+    task_status: pending_credentialed_validation
+    clinical_event: first new active renal-replacement therapy session
+    exclusion: any active RRT evidence during [0h, 6h)
+    positive_window: first qualifying active evidence in [6h, 18h)
+    included_modalities:
+      - intermittent_hemodialysis
+      - continuous_renal_replacement_therapy
+      - peritoneal_dialysis
+      - slow_low_efficiency_dialysis
+    mimic:
+      status: upstream_concept_verified
+      source_relation: mimiciv_derived.rrt
+      time_field: charttime
+      qualifying_rule: dialysis_active = 1
+      provenance_path: mimic-iv/concepts/treatment/rrt.sql
+      local_checks:
+        - source relation exists and required columns are present
+        - catheter-presence-only evidence is not counted as active therapy
+        - first active charttime is unique per stay
+    eicu:
+      status: vocabulary_discovery_required
+      candidate_sources:
+        - treatment.treatmentOffset
+        - treatment.treatmentString
+        - intakeOutput.intakeOutputOffset
+        - intakeOutput.cellLabel
+        - intakeOutput.cellPath
+      provenance_paths:
+        - website/content/eicutables/treatment.md
+        - website/content/eicutables/intakeOutput.md
+      local_checks:
+        - discover dialysis, CRRT, CVVH, CVVHD, CVVHDF, SLED and peritoneal terms
+        - separate active therapy from history, access placement, planning and monitoring
+        - quantify source agreement and hospital coverage
+        - clinician review of final positive and negative code lists
+
+required_release_artifacts:
+  - schemas/outcome_contracts.yaml
+  - artifacts/outcome_vocabulary_report.json
+  - artifacts/outcome_contract_lock.json
+  - artifacts/synthetic_timeline_test_report.json
+  - artifacts/cross_database_equivalence_review.json
