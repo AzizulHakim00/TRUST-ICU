@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# IDE / notebooks
+.vscode/
+.idea/
+.ipynb_checkpoints/
+.DS_Store
+
+# Restricted or derived clinical data — never commit
+/data/
+data/
+/raw/
+/interim/
+/processed/
+/cohorts/
+patient_level/
+*.parquet
+*.feather
+*.arrow
+*.duckdb
+*.db
+*.sqlite
+*.sqlite3
+
+# Credentials and access material
+credentials/
+secrets/
+*.pem
+*.key
+*service-account*.json
+
+# Model and experiment artifacts
+outputs/
+runs/
+artifacts/
+checkpoints/
+models/
+*.pkl
+*.pickle
+*.joblib
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Local reports
+htmlcov/
+.coverage
+coverage.xml
