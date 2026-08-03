@@ -23,5 +23,9 @@ jobs:
         run: ruff check src tests scripts
       - name: Validate public outcome contracts
         run: python scripts/validate_outcome_contracts.py
+      - name: Validate public feature contract
+        run: python scripts/validate_phase0_features.py
       - name: Test
         run: pytest --cov=trust_icu --cov-report=term-missing
+      - name: Synthetic end-to-end dry-run
+        run: python scripts/run_synthetic_phase0.py --n 600 --output /tmp/trust_icu_synthetic_report.json
