@@ -1,0 +1,131 @@
+contract_version: "0.1.0"
+created_on: "2026-08-04"
+observation_window:
+  start_minutes: 0
+  end_minutes: 360
+  interval: left_closed_right_open
+aggregation:
+  summaries: [first, last, min, max, mean, slope_per_hour, count]
+  add_missingness_indicator: true
+  add_hours_since_last: true
+  duplicate_same_timestamp_policy: mean
+  out_of_window_policy: audit_and_exclude
+  unknown_variable_policy: audit_and_exclude
+static_predictors:
+  - age_years
+  - sex
+  - admission_weight_kg
+  - admission_height_cm
+  - admission_source
+  - unit_type
+prohibited_predictors:
+  - patient_id
+  - hospital_admission_id
+  - stay_id
+  - hospital_id
+  - dataset_id
+  - discharge_time
+  - death_time
+  - followup_end_time
+  - outcome
+  - target
+variables:
+  heart_rate:
+    canonical_unit: beats/min
+    plausible_min: 20
+    plausible_max: 250
+  respiratory_rate:
+    canonical_unit: breaths/min
+    plausible_min: 4
+    plausible_max: 80
+  spo2:
+    canonical_unit: percent
+    plausible_min: 50
+    plausible_max: 100
+  systolic_bp:
+    canonical_unit: mmHg
+    plausible_min: 40
+    plausible_max: 300
+  diastolic_bp:
+    canonical_unit: mmHg
+    plausible_min: 20
+    plausible_max: 200
+  mean_arterial_pressure:
+    canonical_unit: mmHg
+    plausible_min: 25
+    plausible_max: 220
+  temperature_c:
+    canonical_unit: degC
+    plausible_min: 25
+    plausible_max: 45
+  gcs_total:
+    canonical_unit: score
+    plausible_min: 3
+    plausible_max: 15
+  urine_output_ml:
+    canonical_unit: mL
+    plausible_min: 0
+    plausible_max: 10000
+  lactate:
+    canonical_unit: mmol/L
+    plausible_min: 0.1
+    plausible_max: 30
+  creatinine:
+    canonical_unit: mg/dL
+    plausible_min: 0.1
+    plausible_max: 30
+  bun:
+    canonical_unit: mg/dL
+    plausible_min: 1
+    plausible_max: 300
+  sodium:
+    canonical_unit: mmol/L
+    plausible_min: 90
+    plausible_max: 200
+  potassium:
+    canonical_unit: mmol/L
+    plausible_min: 1.5
+    plausible_max: 10
+  chloride:
+    canonical_unit: mmol/L
+    plausible_min: 60
+    plausible_max: 150
+  bicarbonate:
+    canonical_unit: mmol/L
+    plausible_min: 3
+    plausible_max: 60
+  glucose:
+    canonical_unit: mg/dL
+    plausible_min: 10
+    plausible_max: 1500
+  bilirubin_total:
+    canonical_unit: mg/dL
+    plausible_min: 0
+    plausible_max: 80
+  platelet_count:
+    canonical_unit: 10^9/L
+    plausible_min: 1
+    plausible_max: 2000
+  hemoglobin:
+    canonical_unit: g/dL
+    plausible_min: 2
+    plausible_max: 25
+  wbc:
+    canonical_unit: 10^9/L
+    plausible_min: 0.1
+    plausible_max: 200
+  ph:
+    canonical_unit: pH
+    plausible_min: 6.5
+    plausible_max: 8.0
+  pao2:
+    canonical_unit: mmHg
+    plausible_min: 20
+    plausible_max: 700
+  fio2:
+    canonical_unit: fraction
+    plausible_min: 0.21
+    plausible_max: 1.0
+source_mapping_status:
+  mimic_iv_3_1: pending_credentialed_validation
+  eicu_crd_2_0: pending_credentialed_validation
