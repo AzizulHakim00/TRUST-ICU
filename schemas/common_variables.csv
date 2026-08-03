@@ -1,0 +1,33 @@
+canonical_name,domain,canonical_unit,aggregation_0_6h,temporal_features,phase0_required,availability_status,notes
+age,demographic,years,static,none,true,to_be_mapped,Age at ICU admission
+gender,demographic,category,static,none,true,to_be_mapped,Dataset-recorded administrative sex or gender; preserve source semantics
+admission_type,demographic,category,static,none,false,to_be_mapped,Emergency elective urgent or equivalent
+icu_unit_type,demographic,category,static,none,false,to_be_mapped,Evaluation stratifier; avoid source-specific leakage
+heart_rate,vital,beats/min,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,
+respiratory_rate,vital,breaths/min,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,
+spo2,vital,percent,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,Peripheral oxygen saturation
+systolic_blood_pressure,vital,mmHg,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,Use invasive and non-invasive mapping rules fixed before extraction
+diastolic_blood_pressure,vital,mmHg,first|last|min|max|mean,missing|count|time_since_last|slope,false,to_be_mapped,
+mean_arterial_pressure,vital,mmHg,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,
+temperature,vital,Celsius,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,Convert Fahrenheit when needed
+gcs_total,neurologic,score,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,Do not infer when components are unavailable without a locked rule
+urine_output,fluid,mL,sum|rate_per_hour,missing|count,true,to_be_mapped,Normalize by observed hours; weight-normalized version is secondary
+fio2,respiratory,fraction,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,Normalize percentage to fraction
+oxygen_flow,respiratory,L/min,first|last|max|mean,missing|count|time_since_last,false,to_be_mapped,Exclude records indicating invasive ventilation before index end
+pao2,laboratory,mmHg,first|last|min|max|mean,missing|count|time_since_last|slope,false,to_be_mapped,
+paco2,laboratory,mmHg,first|last|min|max|mean,missing|count|time_since_last|slope,false,to_be_mapped,
+arterial_ph,laboratory,pH,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,
+lactate,laboratory,mmol/L,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,
+creatinine,laboratory,mg/dL,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,Convert micromol/L where required
+blood_urea_nitrogen,laboratory,mg/dL,first|last|min|max|mean,missing|count|time_since_last|slope,false,to_be_mapped,Map urea carefully across databases
+sodium,laboratory,mmol/L,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,
+potassium,laboratory,mmol/L,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,
+bicarbonate,laboratory,mmol/L,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,Distinguish serum bicarbonate from calculated blood-gas values
+glucose,laboratory,mg/dL,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,Convert mmol/L where required
+hemoglobin,laboratory,g/dL,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,
+white_blood_cell_count,laboratory,10^9/L,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,
+platelet_count,laboratory,10^9/L,first|last|min|max|mean,missing|count|time_since_last|slope,true,to_be_mapped,
+bilirubin_total,laboratory,mg/dL,first|last|min|max|mean,missing|count|time_since_last|slope,false,to_be_mapped,Convert micromol/L where required
+albumin,laboratory,g/dL,first|last|min|max|mean,missing|count|time_since_last|slope,false,to_be_mapped,
+weight,demographic,kg,closest_to_icu_admission,missing,false,to_be_mapped,Apply physiologic range audit; no future weight
+measurement_density,process,count,domain_specific_counts,none,true,derived,Prespecified process feature calculated only inside observation window
