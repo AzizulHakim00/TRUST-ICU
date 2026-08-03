@@ -1,0 +1,81 @@
+study:
+  name: TRUST-ICU
+  phase: phase_0_feasibility
+  seed: 20260804
+  observation_window_hours: 6
+  prediction_horizon_hours: 12
+  index_time: icu_admission
+  adult_only: true
+  minimum_age: 18
+  one_stay_per_patient: first_eligible_icu_stay
+
+outcomes:
+  invasive_mechanical_ventilation:
+    enabled: true
+    exclude_if_active_before_observation_end: true
+    operational_definition_status: must_be_locked_before_extraction
+  vasopressor_initiation:
+    enabled: true
+    exclude_if_active_before_observation_end: true
+    operational_definition_status: must_be_locked_before_extraction
+  renal_replacement_therapy:
+    enabled: true
+    exclude_if_active_before_observation_end: true
+    operational_definition_status: must_be_locked_before_extraction
+
+data_sources:
+  development:
+    name: MIMIC-IV
+    version: "3.1"
+  external_primary:
+    name: eICU-CRD
+    version: "2.0"
+  later_validation:
+    - name: AmsterdamUMCdb
+      version: "1.5.0"
+    - name: HiRID
+      version: "1.1.1"
+
+models_phase_0:
+  - logistic_regression
+  - catboost
+
+validation:
+  development_split: temporal
+  external_validation: eicu_full_external
+  hospital_level_analysis: true
+  bootstrap_iterations: 2000
+  confidence_level: 0.95
+
+primary_metrics:
+  - pr_auc
+  - brier_score
+  - calibration_slope
+  - calibration_intercept
+secondary_metrics:
+  - roc_auc
+  - sensitivity
+  - specificity
+  - f1
+  - mcc
+  - decision_curve_net_benefit
+
+feasibility_gates:
+  minimum_positive_events_per_primary_task: 2000
+  minimum_external_positive_events_per_primary_task: 500
+  minimum_event_rate: 0.01
+  maximum_event_rate: 0.50
+  minimum_external_pr_auc_prevalence_ratio: 2.0
+  maximum_external_calibration_slope_deviation: 0.35
+  maximum_absolute_external_calibration_intercept: 0.75
+  minimum_number_of_external_hospitals: 20
+  require_no_post_index_leakage: true
+  require_outcome_definition_equivalence: true
+  require_all_checks_to_continue: true
+
+reporting:
+  primary_evidence: external_validation
+  follow_tripod_ai: true
+  assess_with_probast_ai: true
+  prohibit_best_fold_reporting: true
+  prohibit_test_set_tuning: true
