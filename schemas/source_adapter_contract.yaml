@@ -1,0 +1,64 @@
+contract_version: "0.1.0"
+created_on: "2026-08-04"
+allowed_datasets:
+  - mimic_iv_3_1
+  - eicu_crd_2_0
+allowed_tasks:
+  - invasive_mechanical_ventilation
+  - vasopressor_initiation
+  - renal_replacement_therapy
+observation_window:
+  start_minutes: 0
+  end_minutes: 360
+  interval: left_closed_right_open
+tables:
+  stays:
+    required_columns:
+      - dataset_id
+      - patient_id
+      - hospital_admission_id
+      - stay_id
+      - hospital_id
+      - icu_admit_time
+      - icu_discharge_time
+      - age
+      - sex
+    optional_columns:
+      - death_time
+      - admission_weight_kg
+      - admission_height_cm
+      - admission_source
+      - unit_type
+    unique_key: [stay_id]
+  events:
+    required_columns:
+      - stay_id
+      - task
+      - start_time
+      - end_time
+      - source_table
+      - source_code
+  observations:
+    required_columns:
+      - stay_id
+      - variable
+      - event_time
+      - value
+      - unit
+      - source_table
+      - source_code
+critical_rules:
+  require_all_rows_link_to_stays: true
+  require_observations_inside_window: true
+  require_canonical_units: true
+  require_known_variables: true
+  require_known_tasks: true
+  require_source_provenance: true
+  prohibit_duplicate_stay_ids: true
+  prohibit_nonpositive_icu_duration: true
+  prohibit_invalid_event_intervals: true
+  prohibit_duplicate_observation_rows: true
+reporting:
+  aggregate_only: true
+  include_input_sha256: true
+  prohibit_row_level_examples: true
