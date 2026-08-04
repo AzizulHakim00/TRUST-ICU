@@ -1,8 +1,8 @@
 """TRUST-ICU research utilities.
 
-The public package contains protocol validation, outcome-lock enforcement, canonical cohort
-and feature construction, locked baselines and aggregate feasibility logic. Restricted
-patient-level data must remain outside the repository.
+The public package contains protocol validation, source-adapter audits, outcome-lock
+enforcement, canonical cohort and feature construction, locked baselines and aggregate
+feasibility logic. Restricted patient-level data must remain outside the repository.
 """
 
 from trust_icu.baseline import (
@@ -27,10 +27,17 @@ from trust_icu.outcomes import (
     evaluate_outcome_locks,
     load_outcome_contracts,
 )
+from trust_icu.source_validation import (
+    CanonicalExtractAudit,
+    audit_canonical_extract,
+    load_source_adapter_contract,
+    validate_source_adapter_contract,
+)
 from trust_icu.validation import DatasetAudit, GateDecision, evaluate_feasibility
 
 __all__ = [
     "BaselineMetrics",
+    "CanonicalExtractAudit",
     "DatasetAudit",
     "FeatureContract",
     "FeatureMatrixAudit",
@@ -41,6 +48,7 @@ __all__ = [
     "VariableSpec",
     "assert_task_training_allowed",
     "assign_task_labels",
+    "audit_canonical_extract",
     "build_feature_matrix",
     "build_landmark_cohort",
     "classify_event_offset_minutes",
@@ -52,6 +60,8 @@ __all__ = [
     "load_config",
     "load_feature_contract",
     "load_outcome_contracts",
+    "load_source_adapter_contract",
+    "validate_source_adapter_contract",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
