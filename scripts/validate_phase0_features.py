@@ -8,7 +8,6 @@ from pathlib import Path
 
 from trust_icu.features import load_feature_contract
 
-
 DEFAULT_CONTRACT = Path(__file__).resolve().parents[1] / "schemas" / "phase0_features.yaml"
 
 
