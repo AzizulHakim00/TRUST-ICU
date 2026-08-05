@@ -1,0 +1,77 @@
+{
+  "evidence_version": "0.1.0",
+  "public_contract_sha256": "REPLACE_WITH_PUBLIC_CONTRACT_SHA256",
+  "mimic_summary_sha256": "REPLACE_WITH_MIMIC_SUMMARY_SHA256",
+  "eicu_summary_sha256": "REPLACE_WITH_EICU_SUMMARY_SHA256",
+  "reviewers": [
+    {
+      "name": "REPLACE_WITH_DATA_REVIEWER",
+      "role": "data_reviewer",
+      "reviewed_on": "YYYY-MM-DD"
+    },
+    {
+      "name": "REPLACE_WITH_CLINICAL_REVIEWER",
+      "role": "clinical_reviewer",
+      "reviewed_on": "YYYY-MM-DD"
+    }
+  ],
+  "tasks": {
+    "invasive_mechanical_ventilation": {
+      "mimic": {
+        "decision": "pending"
+      },
+      "eicu": {
+        "decision": "pending",
+        "candidate_terms_reviewed": 0,
+        "unresolved_candidate_terms": 0,
+        "locked_positive_mappings": 0
+      },
+      "equivalence": {
+        "decision": "pending",
+        "same_clinical_event": false,
+        "same_active_support_exclusion": false,
+        "same_time_boundaries": false,
+        "same_primary_estimand": false,
+        "rationale": ""
+      }
+    },
+    "vasopressor_initiation": {
+      "mimic": {
+        "decision": "pending"
+      },
+      "eicu": {
+        "decision": "pending",
+        "candidate_terms_reviewed": 0,
+        "unresolved_candidate_terms": 0,
+        "locked_positive_mappings": 0
+      },
+      "equivalence": {
+        "decision": "pending",
+        "same_clinical_event": false,
+        "same_active_support_exclusion": false,
+        "same_time_boundaries": false,
+        "same_primary_estimand": false,
+        "rationale": ""
+      }
+    },
+    "renal_replacement_therapy": {
+      "mimic": {
+        "decision": "pending"
+      },
+      "eicu": {
+        "decision": "pending",
+        "candidate_terms_reviewed": 0,
+        "unresolved_candidate_terms": 0,
+        "locked_positive_mappings": 0
+      },
+      "equivalence": {
+        "decision": "pending",
+        "same_clinical_event": false,
+        "same_active_support_exclusion": false,
+        "same_time_boundaries": false,
+        "same_primary_estimand": false,
+        "rationale": ""
+      }
+    }
+  }
+}
