@@ -8,9 +8,8 @@ import pytest
 
 from trust_icu.config import FeasibilityGates, StudyConfig
 from trust_icu.features import FeatureContract, VariableSpec
-from trust_icu.phase0_runner import (
-    _canonical_hash,
-    _sha256_file,
+from trust_icu.phase0_runner import _canonical_hash, _sha256_file
+from trust_icu.phase0_runtime import (
     build_feature_matrix_from_extract,
     run_task_phase0,
     temporal_patient_purged_split,
@@ -121,13 +120,14 @@ def test_locked_task_modeling_runs_without_saving_predictions() -> None:
         eicu_metadata=eicu_metadata,
         config=_study_config(),
         raw_config=_raw_config(),
-        models=("logistic_regression",),
+        models=("logistic_regression", "catboost"),
     )
-    assert report.selected_model == "logistic_regression"
+    assert report.selected_model in {"logistic_regression", "catboost"}
+    assert len(report.models) == 2
     assert len(report.external_cluster_bootstrap) == 3
     assert report.hospital_robustness.total_hospitals == 30
     assert report.split.patient_overlap_after_purge is False
-    assert report.models[0].external_metrics_calibrated.n == 600
+    assert all(model.external_metrics_calibrated.n == 600 for model in report.models)
     assert report.feasibility_decision.continue_to_architecture_development is False
 
 
