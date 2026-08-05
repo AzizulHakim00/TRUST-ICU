@@ -5,6 +5,12 @@ enforcement, canonical cohort and feature construction, locked baselines and agg
 feasibility logic. Restricted patient-level data must remain outside the repository.
 """
 
+from trust_icu.adapter_manifest import (
+    AdapterDatasetReport,
+    AdapterManifestReport,
+    load_and_validate_adapter_manifest,
+    validate_adapter_manifest,
+)
 from trust_icu.baseline import (
     BaselineMetrics,
     evaluate_probabilities,
@@ -36,6 +42,8 @@ from trust_icu.source_validation import (
 from trust_icu.validation import DatasetAudit, GateDecision, evaluate_feasibility
 
 __all__ = [
+    "AdapterDatasetReport",
+    "AdapterManifestReport",
     "BaselineMetrics",
     "CanonicalExtractAudit",
     "DatasetAudit",
@@ -57,10 +65,12 @@ __all__ = [
     "evaluate_probabilities",
     "fit_catboost_baseline",
     "fit_logistic_baseline",
+    "load_and_validate_adapter_manifest",
     "load_config",
     "load_feature_contract",
     "load_outcome_contracts",
     "load_source_adapter_contract",
+    "validate_adapter_manifest",
     "validate_source_adapter_contract",
 ]
 
