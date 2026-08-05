@@ -56,7 +56,7 @@ SELECT
     stay_id,
     age,
     sex,
-    'eICU-CRD-2.0'::text AS dataset_id,
+    'eicu_crd_2_0'::text AS dataset_id,
     hospital_id,
     unit_type,
     admission_source,
