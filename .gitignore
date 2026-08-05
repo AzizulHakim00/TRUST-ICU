@@ -36,6 +36,8 @@ patient_level/
 *.partial
 canonical_audit.json
 credentialed_run_report.json
+phase0_go_no_go.json
+phase0_aggregate_summary.csv
 
 # Credentials and access material
 credentials/
