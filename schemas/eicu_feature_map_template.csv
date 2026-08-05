@@ -1,0 +1,26 @@
+source_table,source_code_normalized,source_unit_normalized,canonical_variable,canonical_unit,multiplier,offset,status,reviewer,notes
+vitalPeriodic,heartRate,,heart_rate,beats/min,1,0,approved_public_schema,,Direct documented column
+vitalPeriodic,respiration,,respiratory_rate,breaths/min,1,0,approved_public_schema,,Direct documented column
+vitalPeriodic,saO2,,spo2,percent,1,0,approved_public_schema,,Documented as monitor SpO2
+vitalPeriodic,systemicSystolic,,systolic_bp,mmHg,1,0,approved_public_schema,,Invasive monitor value
+vitalPeriodic,systemicDiastolic,,diastolic_bp,mmHg,1,0,approved_public_schema,,Invasive monitor value
+vitalPeriodic,systemicMean,,mean_arterial_pressure,mmHg,1,0,approved_public_schema,,Invasive monitor value
+vitalPeriodic,temperature,,temperature_c,degC,1,0,approved_public_schema,,Documented Celsius
+vitalAperiodic,nonInvasiveSystolic,,systolic_bp,mmHg,1,0,approved_public_schema,,Non-invasive measurement
+vitalAperiodic,nonInvasiveDiastolic,,diastolic_bp,mmHg,1,0,approved_public_schema,,Non-invasive measurement
+vitalAperiodic,nonInvasiveMean,,mean_arterial_pressure,mmHg,1,0,approved_public_schema,,Non-invasive measurement
+lab,glucose,mg/dL,glucose,mg/dL,1,0,pending_local_review,,Confirm labName and unit frequencies
+lab,lactate,mmol/L,lactate,mmol/L,1,0,pending_local_review,,Confirm aliases and units
+lab,creatinine,mg/dL,creatinine,mg/dL,1,0,pending_local_review,,Confirm aliases and units
+lab,BUN,mg/dL,bun,mg/dL,1,0,pending_local_review,,Confirm aliases and units
+lab,sodium,mmol/L,sodium,mmol/L,1,0,pending_local_review,,Confirm aliases and units
+lab,potassium,mmol/L,potassium,mmol/L,1,0,pending_local_review,,Confirm aliases and units
+lab,chloride,mmol/L,chloride,mmol/L,1,0,pending_local_review,,Confirm aliases and units
+lab,HCO3,mmol/L,bicarbonate,mmol/L,1,0,pending_local_review,,Do not mix calculated and serum values without review
+lab,total bilirubin,mg/dL,bilirubin_total,mg/dL,1,0,pending_local_review,,Confirm aliases and units
+lab,platelets x 1000,10^3/uL,platelet_count,10^9/L,1,0,pending_local_review,,Numerically equivalent after unit review
+lab,Hgb,g/dL,hemoglobin,g/dL,1,0,pending_local_review,,Confirm aliases and units
+lab,WBC x 1000,10^3/uL,wbc,10^9/L,1,0,pending_local_review,,Numerically equivalent after unit review
+lab,pH,,ph,pH,1,0,pending_local_review,,Restrict to arterial sample if identifiable
+lab,paO2,mm Hg,pao2,mmHg,1,0,pending_local_review,,Restrict to arterial sample if identifiable
+lab,FiO2,%,fio2,fraction,0.01,0,pending_local_review,,Reject flow-like values and confirm source semantics
