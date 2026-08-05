@@ -6,14 +6,11 @@ operations with scalable and alignment-safe implementations before execution.
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
 import trust_icu.phase0_runner as _runner
-from trust_icu.baseline import evaluate_probabilities
 
 
 def _cluster_bootstrap(
