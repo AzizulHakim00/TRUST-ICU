@@ -11,7 +11,6 @@ from pathlib import Path
 
 from trust_icu.config import load_config
 
-
 ROOT_VARIABLES = {
     "MIMIC-IV v3.1": "TRUST_ICU_MIMIC_ROOT",
     "eICU-CRD v2.0": "TRUST_ICU_EICU_ROOT",
