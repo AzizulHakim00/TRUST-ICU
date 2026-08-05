@@ -1,8 +1,9 @@
 """TRUST-ICU research utilities.
 
-The public package contains protocol validation, source-adapter audits, outcome-lock
-enforcement, canonical cohort and feature construction, locked baselines and aggregate
-feasibility logic. Restricted patient-level data must remain outside the repository.
+The public package contains protocol validation, source-adapter audits, secure credentialed
+execution, outcome-lock enforcement, canonical cohort and feature construction, locked
+baselines and aggregate feasibility logic. Restricted patient-level data must remain outside
+the repository.
 """
 
 from trust_icu.adapter_manifest import (
@@ -19,6 +20,13 @@ from trust_icu.baseline import (
 )
 from trust_icu.cohort import LandmarkSpec, assign_task_labels, build_landmark_cohort
 from trust_icu.config import StudyConfig, load_config
+from trust_icu.credentialed_runner import (
+    CredentialedRunReport,
+    ExportArtifact,
+    build_dry_run_plan,
+    execute_credentialed_run,
+    prepare_eicu_mapping_tables,
+)
 from trust_icu.features import (
     FeatureContract,
     FeatureMatrixAudit,
@@ -46,7 +54,9 @@ __all__ = [
     "AdapterManifestReport",
     "BaselineMetrics",
     "CanonicalExtractAudit",
+    "CredentialedRunReport",
     "DatasetAudit",
+    "ExportArtifact",
     "FeatureContract",
     "FeatureMatrixAudit",
     "GateDecision",
@@ -57,12 +67,14 @@ __all__ = [
     "assert_task_training_allowed",
     "assign_task_labels",
     "audit_canonical_extract",
+    "build_dry_run_plan",
     "build_feature_matrix",
     "build_landmark_cohort",
     "classify_event_offset_minutes",
     "evaluate_feasibility",
     "evaluate_outcome_locks",
     "evaluate_probabilities",
+    "execute_credentialed_run",
     "fit_catboost_baseline",
     "fit_logistic_baseline",
     "load_and_validate_adapter_manifest",
@@ -70,8 +82,9 @@ __all__ = [
     "load_feature_contract",
     "load_outcome_contracts",
     "load_source_adapter_contract",
+    "prepare_eicu_mapping_tables",
     "validate_adapter_manifest",
     "validate_source_adapter_contract",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
