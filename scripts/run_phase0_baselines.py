@@ -8,7 +8,7 @@ import json
 import os
 from pathlib import Path
 
-from trust_icu.phase0_runner import build_phase0_dry_run_plan, execute_phase0_baselines
+from trust_icu.phase0_runtime import build_phase0_dry_run_plan, execute_phase0_baselines
 
 
 def main() -> int:
