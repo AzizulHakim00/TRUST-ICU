@@ -10,7 +10,6 @@ from trust_icu.outcomes import (
     load_outcome_contracts,
 )
 
-
 CONTRACTS = Path(__file__).resolve().parents[1] / "schemas" / "outcome_contracts.yaml"
 
 
