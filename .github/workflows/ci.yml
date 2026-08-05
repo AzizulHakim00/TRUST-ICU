@@ -29,6 +29,10 @@ jobs:
         run: python scripts/validate_source_adapter_contract.py
       - name: Validate source-adapter manifest
         run: python scripts/validate_source_adapter_manifest.py
+      - name: Validate credentialed execution plans
+        run: |
+          python scripts/run_credentialed_extract.py --dataset mimic_iv_3_1 --dry-run
+          python scripts/run_credentialed_extract.py --dataset eicu_crd_2_0 --dry-run
       - name: Test
         run: pytest --cov=trust_icu --cov-report=term-missing
       - name: Synthetic end-to-end dry-run
