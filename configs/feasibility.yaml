@@ -56,11 +56,21 @@ models_phase_0:
     depth: 6
     learning_rate: 0.03
     auto_class_weights: Balanced
+  selection_rule: mimic_temporal_calibrated_pr_auc_then_brier_then_logistic
+  external_recalibration: prohibited
 
 validation:
   development_split: temporal
+  temporal_split:
+    train_fraction: 0.70
+    calibration_fraction: 0.15
+    test_fraction: 0.15
+    patient_overlap_policy: purge_later_splits
   external_validation: eicu_full_external
   hospital_level_analysis: true
+  hospital_metric_minimum_rows: 100
+  hospital_metric_minimum_events: 10
+  bootstrap_unit: hospital
   bootstrap_iterations: 2000
   confidence_level: 0.95
   identifiers_for_evaluation_only: true
@@ -98,5 +108,7 @@ reporting:
   assess_with_probast_ai: true
   prohibit_best_fold_reporting: true
   prohibit_test_set_tuning: true
+  prohibit_patient_level_public_outputs: true
+  prohibit_model_artifact_release_without_dua_review: true
   report_competing_events: true
   report_protocol_amendments: true
