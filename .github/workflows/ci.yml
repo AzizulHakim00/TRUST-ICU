@@ -23,6 +23,8 @@ jobs:
         run: ruff check src tests scripts
       - name: Validate public outcome contracts
         run: python scripts/validate_outcome_contracts.py
+      - name: Validate outcome evidence template JSON
+        run: python -m json.tool templates/outcome_validation_evidence.template.json >/dev/null
       - name: Validate public feature contract
         run: python scripts/validate_phase0_features.py
       - name: Validate source-adapter contract
