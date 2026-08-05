@@ -1,5 +1,6 @@
-contract_version: "0.2.0"
+contract_version: "0.3.0"
 created_on: "2026-08-04"
+last_amended_on: "2026-08-05"
 observation_window:
   start_hours: 0
   end_hours: 6
@@ -23,6 +24,12 @@ locking_rule:
   require_synthetic_timeline_tests: true
   prohibit_model_training_before_lock: true
 
+synthetic_timeline_evidence:
+  status: passed
+  test_file: tests/test_outcomes.py
+  enforced_by: .github/workflows/ci.yml
+  locked_boundaries_minutes: [-1, 0, 359, 360, 1079, 1080]
+
 upstream_sources:
   mimic_code:
     repository: MIT-LCP/mimic-code
@@ -34,6 +41,8 @@ upstream_sources:
 outcomes:
   invasive_mechanical_ventilation:
     task_status: pending_credentialed_validation
+    clinical_equivalence_review: pending
+    synthetic_timeline_tests: passed
     clinical_event: first new invasive positive-pressure ventilation episode
     exclusion: any invasive ventilation active during [0h, 6h)
     positive_window: first qualifying start in [6h, 18h)
@@ -72,6 +81,8 @@ outcomes:
 
   vasopressor_initiation:
     task_status: pending_credentialed_validation
+    clinical_equivalence_review: pending
+    synthetic_timeline_tests: passed
     clinical_event: first new continuous vasopressor infusion
     exclusion: any qualifying vasopressor active during [0h, 6h)
     positive_window: first qualifying start in [6h, 18h)
@@ -116,6 +127,8 @@ outcomes:
 
   renal_replacement_therapy:
     task_status: pending_credentialed_validation
+    clinical_equivalence_review: pending
+    synthetic_timeline_tests: passed
     clinical_event: first new active renal-replacement therapy session
     exclusion: any active RRT evidence during [0h, 6h)
     positive_window: first qualifying active evidence in [6h, 18h)
