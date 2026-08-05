@@ -24,7 +24,7 @@ class FeasibilityGates:
     require_all_checks_to_continue: bool
 
     @classmethod
-    def from_dict(cls, values: dict[str, Any]) -> "FeasibilityGates":
+    def from_dict(cls, values: dict[str, Any]) -> FeasibilityGates:
         gates = cls(**values)
         if gates.minimum_positive_events_per_primary_task <= 0:
             raise ValueError("Development positive-event minimum must be greater than zero.")
@@ -50,7 +50,7 @@ class StudyConfig:
     gates: FeasibilityGates
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> "StudyConfig":
+    def from_dict(cls, raw: dict[str, Any]) -> StudyConfig:
         study = raw["study"]
         config = cls(
             name=str(study["name"]),
