@@ -1,0 +1,47 @@
+manifest_version: "0.1.0"
+created_on: "2026-08-05"
+canonical_contract: schemas/source_adapter_contract.yaml
+feature_contract: schemas/phase0_features.yaml
+outcome_contract: schemas/outcome_contracts.yaml
+
+datasets:
+  mimic_iv_3_1:
+    status: implemented_pending_credentialed_execution
+    dialect: postgresql
+    upstream_repository: MIT-LCP/mimic-code
+    upstream_commit: 3a914fce11e05888a4b659c7788e207bc34d1728
+    materialized_stays_relation: trust_icu_work.mimic_stays
+    execution_order:
+      stays: sql/mimic/02_base_landmark_cohort.sql
+      events: sql/mimic/03_canonical_events.sql
+      observations: sql/mimic/04_canonical_observations.sql
+    output_dataset_id: mimic_iv_3_1
+    requires_local_vocabulary_tables: false
+    credentialed_validation_required: true
+
+  eicu_crd_2_0:
+    status: templates_require_reviewed_local_mappings
+    dialect: postgresql
+    upstream_repository: MIT-LCP/eicu-code
+    upstream_commit: 34cece8c70771a3fab48da84d4c47f0e133ca021
+    materialized_stays_relation: trust_icu_work.eicu_stays
+    execution_order:
+      stays: sql/eicu/01_base_landmark_cohort.sql
+      events: sql/eicu/03_canonical_events_template.sql
+      observations: sql/eicu/02_canonical_observations_template.sql
+    output_dataset_id: eicu_crd_2_0
+    requires_local_vocabulary_tables: true
+    local_mapping_templates:
+      features: schemas/eicu_feature_map_template.csv
+      outcomes: schemas/eicu_outcome_map_template.csv
+    credentialed_validation_required: true
+
+required_post_export_checks:
+  - python scripts/audit_canonical_extract.py --require-ready
+  - outcome_contract_lock
+  - cross_database_equivalence_review
+
+publication_safeguards:
+  prohibit_unreviewed_eicu_mapping: true
+  prohibit_patient_level_exports_in_git: true
+  prohibit_model_training_before_adapter_audit: true
