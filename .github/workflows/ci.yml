@@ -27,6 +27,8 @@ jobs:
         run: python scripts/validate_phase0_features.py
       - name: Validate source-adapter contract
         run: python scripts/validate_source_adapter_contract.py
+      - name: Validate source-adapter manifest
+        run: python scripts/validate_source_adapter_manifest.py
       - name: Test
         run: pytest --cov=trust_icu --cov-report=term-missing
       - name: Synthetic end-to-end dry-run
