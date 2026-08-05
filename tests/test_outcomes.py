@@ -24,6 +24,8 @@ def test_current_contracts_fail_closed_before_data_access() -> None:
     reports = evaluate_outcome_locks(load_outcome_contracts(CONTRACTS))
     assert len(reports) == 3
     assert all(report.ready_for_model_training is False for report in reports)
+    assert all(report.synthetic_timeline_tests_passed is True for report in reports)
+    assert all("synthetic_timeline_tests" not in report.missing_requirements for report in reports)
     assert all("eicu_local_validation" in report.missing_requirements for report in reports)
 
 
