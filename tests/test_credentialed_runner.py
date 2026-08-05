@@ -10,7 +10,6 @@ from trust_icu.credentialed_runner import (
     execute_credentialed_run,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -73,6 +72,6 @@ def test_eicu_requires_explicit_review_flag_before_database_access(tmp_path: Pat
         execute_credentialed_run(
             repo_root=ROOT,
             dataset="eicu_crd_2_0",
-            dsn="postgresql://not-used",
+            dsn="not-a-dsn",
             output_root=tmp_path,
         )
