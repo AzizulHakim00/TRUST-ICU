@@ -1,7 +1,7 @@
 """TRUST-ICU research utilities.
 
 The public package contains protocol validation, source-adapter audits, secure credentialed
-execution, outcome-lock enforcement, canonical cohort and feature construction, locked
+execution, evidence-based outcome locking, canonical cohort and feature construction, locked
 baselines, temporal and external Phase 0 orchestration, and aggregate feasibility logic.
 Restricted patient-level data must remain outside the repository.
 """
@@ -33,6 +33,14 @@ from trust_icu.features import (
     VariableSpec,
     build_feature_matrix,
     load_feature_contract,
+)
+from trust_icu.outcome_evidence import (
+    LocalOutcomeSummary,
+    OutcomeEvidenceReport,
+    OutcomeSummaryTask,
+    build_local_outcome_summary,
+    prepare_locked_runtime_context,
+    validate_outcome_evidence,
 )
 from trust_icu.outcomes import (
     OutcomeLockReport,
@@ -71,7 +79,10 @@ __all__ = [
     "FeatureMatrixAudit",
     "GateDecision",
     "LandmarkSpec",
+    "LocalOutcomeSummary",
+    "OutcomeEvidenceReport",
     "OutcomeLockReport",
+    "OutcomeSummaryTask",
     "Phase0BaselineReport",
     "StudyConfig",
     "TaskPhase0Report",
@@ -83,6 +94,7 @@ __all__ = [
     "build_feature_matrix",
     "build_feature_matrix_from_extract",
     "build_landmark_cohort",
+    "build_local_outcome_summary",
     "build_phase0_dry_run_plan",
     "classify_event_offset_minutes",
     "evaluate_feasibility",
@@ -98,11 +110,13 @@ __all__ = [
     "load_outcome_contracts",
     "load_source_adapter_contract",
     "prepare_eicu_mapping_tables",
+    "prepare_locked_runtime_context",
     "run_task_phase0",
     "temporal_patient_purged_split",
     "validate_adapter_manifest",
+    "validate_outcome_evidence",
     "validate_source_adapter_contract",
     "verify_credentialed_run",
 ]
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
