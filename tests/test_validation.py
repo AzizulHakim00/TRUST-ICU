@@ -5,7 +5,6 @@ import pytest
 from trust_icu.config import load_config
 from trust_icu.validation import DatasetAudit, evaluate_feasibility
 
-
 CONFIG = Path(__file__).resolve().parents[1] / "configs" / "feasibility.yaml"
 
 
