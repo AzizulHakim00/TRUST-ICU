@@ -32,12 +32,19 @@ patient_level/
 *.db
 *.sqlite
 *.sqlite3
+*.csv.gz
+*.partial
+canonical_audit.json
+credentialed_run_report.json
 
 # Credentials and access material
 credentials/
 secrets/
 *.pem
 *.key
+*.pgpass
+.pgpass
+.pg_service.conf
 *service-account*.json
 
 # Model and experiment artifacts
