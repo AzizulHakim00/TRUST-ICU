@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS trust_icu_local.eicu_feature_map (
     canonical_unit text NOT NULL,
     multiplier double precision NOT NULL DEFAULT 1.0,
     offset double precision NOT NULL DEFAULT 0.0,
-    status text NOT NULL CHECK (status IN ('pending_local_review', 'locked')),
+    status text NOT NULL CHECK (
+        status IN ('approved_public_schema', 'pending_local_review', 'locked')
+    ),
     reviewer text,
     notes text,
     PRIMARY KEY (source_table, source_code_normalized, source_unit_normalized)
