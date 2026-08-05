@@ -74,4 +74,4 @@ __all__ = [
     "validate_source_adapter_contract",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
