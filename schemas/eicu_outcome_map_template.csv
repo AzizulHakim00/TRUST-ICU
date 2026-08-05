@@ -1,0 +1,11 @@
+task,source_table,source_code_normalized,classification,status,reviewer,notes
+invasive_mechanical_ventilation,respiratoryCare:airwayType,oral ett,positive,pending_local_review,,Confirm all invasive airway aliases
+invasive_mechanical_ventilation,respiratoryCare:airwayType,nasal ett,positive,pending_local_review,,Confirm local frequency
+invasive_mechanical_ventilation,respiratoryCare:airwayType,tracheostomy,positive,pending_local_review,,Separate chronic airway from active invasive ventilation using vent timing
+vasopressor_initiation,infusionDrug:drugName,norepinephrine,positive,pending_local_review,,Review exact normalized names and rate semantics
+vasopressor_initiation,infusionDrug:drugName,epinephrine,positive,pending_local_review,,Review exact normalized names and rate semantics
+vasopressor_initiation,infusionDrug:drugName,vasopressin,positive,pending_local_review,,Review exact normalized names and rate semantics
+vasopressor_initiation,infusionDrug:drugName,phenylephrine,positive,pending_local_review,,Review exact normalized names and rate semantics
+vasopressor_initiation,infusionDrug:drugName,dopamine,positive,pending_local_review,,Exclude renal-dose or malformed records only with a locked rule
+renal_replacement_therapy,treatment:treatmentString,renal|dialysis,positive,pending_local_review,,Replace with exact reviewed treatment paths
+renal_replacement_therapy,intakeOutput:cellPath,dialysis,corroborating,pending_local_review,,Do not count cumulative totals as session starts
