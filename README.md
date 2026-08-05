@@ -88,9 +88,70 @@ Validate the public feature contract:
 python scripts/validate_phase0_features.py
 ```
 
+## Source adapters
+
+The canonical adapter contract requires three restricted tables:
+
+- `stays`;
+- `events`;
+- `observations`.
+
+`schemas/source_adapter_manifest.yaml` fixes the source files, upstream repository commits, execution order and exact output dataset identifiers.
+
+### MIMIC-IV
+
+The public MIMIC adapter is implemented and ready for credentialed execution, but has not yet been run on patient data:
+
+```text
+sql/mimic/02_base_landmark_cohort.sql
+sql/mimic/03_canonical_events.sql
+sql/mimic/04_canonical_observations.sql
+```
+
+The event adapter uses maintained MIMIC concepts for invasive ventilation, norepinephrine, epinephrine, vasopressin, phenylephrine, dopamine and active RRT. The observation adapter uses maintained concepts for vital signs, chemistry, complete blood count, bilirubin, blood gas, GCS and urine output.
+
+### eICU
+
+eICU labels and interfaces vary by hospital. Direct documented vital columns can be exported, but hospital-specific labs and outcome vocabularies require local frequency review and clinical approval.
+
+```text
+sql/eicu/01_base_landmark_cohort.sql
+sql/eicu/01a_create_local_mapping_tables.sql
+sql/eicu/02_canonical_observations_template.sql
+sql/eicu/03_canonical_events_template.sql
+schemas/eicu_feature_map_template.csv
+schemas/eicu_outcome_map_template.csv
+```
+
+Only mappings marked `status='locked'` participate in eICU exports. Unreviewed keyword matches cannot create a positive outcome.
+
+Validate the public execution manifest:
+
+```bash
+python scripts/validate_source_adapter_manifest.py
+```
+
+Full execution instructions are in `docs/source_adapter_execution.md`.
+
+## Canonical extract audit
+
+Before cohort construction, every restricted extract must pass the aggregate-only source audit:
+
+```bash
+python scripts/audit_canonical_extract.py \
+  --dataset mimic_iv_3_1 \
+  --stays /secure/exports/mimic_stays.csv.gz \
+  --events /secure/exports/mimic_events.csv.gz \
+  --observations /secure/exports/mimic_observations.csv.gz \
+  --output /secure/audits/mimic_canonical_audit.json \
+  --require-ready
+```
+
+The audit blocks duplicate stay identifiers, unknown tasks or variables, wrong units, invalid intervals, unlinked rows, future predictors, missing provenance and malformed values. Reports contain aggregate counts and hashes only.
+
 ## Canonical pipeline
 
-The public Python layer now provides:
+The public Python layer provides:
 
 - six-hour landmark cohort construction;
 - first eligible ICU unit selection per hospital admission;
@@ -98,6 +159,8 @@ The public Python layer now provides:
 - competing-death flags;
 - long-to-wide feature aggregation;
 - identifier and future-information leakage guards;
+- source-adapter contract and manifest validation;
+- aggregate-only canonical extract auditing;
 - Logistic Regression and fixed CatBoost baselines;
 - PR-AUC, prevalence-normalized PR-AUC, AUROC, Brier score and calibration slope/intercept.
 
@@ -107,36 +170,60 @@ The database-neutral interfaces and execution order are documented in `docs/phas
 
 ```text
 configs/
-  feasibility.yaml                    # Preregistration, metrics and stop rules
+  feasibility.yaml
+
 docs/
-  phase0_protocol.md                  # Study design and validation protocol
-  protocol_amendment_001.md           # Landmark unit and competing-event policy
-  phase0_pipeline.md                  # Canonical restricted-data interfaces
-  data_access.md                      # Credentialing and governance checklist
-  outcome_definition_workflow.md      # Outcome discovery, review and lock procedure
+  phase0_protocol.md
+  protocol_amendment_001.md
+  phase0_pipeline.md
+  source_adapter_contract.md
+  source_adapter_execution.md
+  data_access.md
+  outcome_definition_workflow.md
+
 schemas/
-  common_variables.csv                # Initial cross-database dictionary
-  outcome_contracts.yaml              # Versioned outcome sources and lock requirements
-  phase0_features.yaml                # Canonical features, units, ranges and summaries
+  common_variables.csv
+  outcome_contracts.yaml
+  phase0_features.yaml
+  source_adapter_contract.yaml
+  source_adapter_manifest.yaml
+  eicu_feature_map_template.csv
+  eicu_outcome_map_template.csv
+
 sql/
   mimic/00_verify_upstream_concepts.sql
   mimic/01_outcome_timing_inventory.sql
   mimic/02_base_landmark_cohort.sql
+  mimic/03_canonical_events.sql
+  mimic/04_canonical_observations.sql
   eicu/00_outcome_vocabulary_discovery.sql
   eicu/01_base_landmark_cohort.sql
+  eicu/01a_create_local_mapping_tables.sql
+  eicu/02_canonical_observations_template.sql
+  eicu/03_canonical_events_template.sql
+
 scripts/
   check_environment.py
   validate_outcome_contracts.py
   validate_phase0_features.py
+  validate_source_adapter_contract.py
+  validate_source_adapter_manifest.py
+  audit_canonical_extract.py
   run_synthetic_phase0.py
+
 src/trust_icu/
-  config.py                           # Typed feasibility configuration
-  outcomes.py                         # Outcome lock and exact boundaries
-  cohort.py                           # Landmark cohort and task labels
-  features.py                         # Six-hour feature matrix and audits
-  baseline.py                         # Locked Phase 0 baselines and metrics
-  validation.py                       # Aggregate go/no-go decision
+  adapter_manifest.py
+  source_validation.py
+  config.py
+  outcomes.py
+  cohort.py
+  features.py
+  baseline.py
+  validation.py
+
 tests/
+  test_adapter_manifest.py
+  test_source_validation.py
   test_outcomes.py
   test_cohort.py
   test_features.py
@@ -155,6 +242,8 @@ ruff check src tests scripts
 pytest
 python scripts/validate_outcome_contracts.py
 python scripts/validate_phase0_features.py
+python scripts/validate_source_adapter_contract.py
+python scripts/validate_source_adapter_manifest.py
 python scripts/run_synthetic_phase0.py --n 1200
 ```
 
@@ -183,7 +272,9 @@ The environment checker reports only path readiness. It never reads clinical tab
 - The intervals are `[0 h, 6 h)` and `[6 h, 18 h)`.
 - Predictors at or after the six-hour boundary are prohibited.
 - Patient, stay, hospital and dataset identifiers are evaluation metadata, not predictors.
+- Dataset IDs are fixed as `mimic_iv_3_1` and `eicu_crd_2_0`.
 - Upstream concepts and keyword matches are evidence sources, not automatically valid labels.
+- eICU mappings must be locally reviewed and explicitly locked.
 - eICU is not used for feature selection, model selection, threshold tuning or primary calibration.
 - Headline evidence is fully external performance, not the best fold or best hospital.
 - Missingness and measurement frequency are audited as transportability factors.
@@ -203,12 +294,17 @@ The environment checker reports only path readiness. It never reads clinical tab
 - [x] Add database-neutral cohort, outcome and feature code.
 - [x] Add locked Logistic Regression and CatBoost baseline code.
 - [x] Add a synthetic end-to-end dry-run and CI enforcement.
+- [x] Add canonical source-adapter contract and extract audit.
+- [x] Implement public MIMIC stays, events and observations adapters.
+- [x] Add reviewed-vocabulary-driven eICU adapter templates.
+- [x] Add adapter execution manifest validation.
 - [ ] Confirm MIMIC-IV v3.1 access and storage mode.
 - [ ] Confirm eICU-CRD v2.0 access and storage mode.
-- [ ] Run local source audits in credentialed environments.
-- [ ] Clinically review and lock eICU outcome vocabularies.
-- [ ] Add final reviewed source-specific outcome extractors.
-- [ ] Add reviewed source-specific canonical observation extractors.
+- [ ] Execute and audit the MIMIC adapter in a credentialed environment.
+- [ ] Run eICU vocabulary frequency discovery.
+- [ ] Clinically review and lock eICU feature and outcome mappings.
+- [ ] Execute and audit the eICU adapter.
+- [ ] Lock cross-database outcome equivalence.
 - [ ] Run cohort, missingness and leakage audits.
 - [ ] Run locked MIMIC temporal and eICU external baselines.
 - [ ] Produce the machine-readable Phase 0 go/no-go decision.
