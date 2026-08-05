@@ -15,7 +15,6 @@ from typing import Any
 
 import yaml
 
-
 VALID_STATUSES = {
     "upstream_concept_verified",
     "vocabulary_discovery_required",
