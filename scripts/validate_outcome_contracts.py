@@ -9,7 +9,6 @@ from pathlib import Path
 
 from trust_icu.outcomes import evaluate_outcome_locks, load_outcome_contracts
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACTS = ROOT / "schemas" / "outcome_contracts.yaml"
 
