@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trust-icu"
-version = "0.6.0"
+version = "0.7.0"
 description = "Transportable and risk-controlled prediction of ICU organ-support escalation"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,10 +18,17 @@ dependencies = [
 
 [project.optional-dependencies]
 ml = [
-  "catboost>=1.2.8,<2",
+  "catboost>=1.2.10,<2",
+]
+analytics = [
+  "duckdb>=1.5.4,<2",
 ]
 db = [
   "psycopg[binary]>=3.2,<4",
+]
+phase0 = [
+  "catboost>=1.2.10,<2",
+  "duckdb>=1.5.4,<2",
 ]
 dev = [
   "pytest>=8.3,<9",
