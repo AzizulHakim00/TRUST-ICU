@@ -8,7 +8,6 @@ from trust_icu.adapter_manifest import (
     validate_adapter_manifest,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "schemas" / "source_adapter_manifest.yaml"
 
