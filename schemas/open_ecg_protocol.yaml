@@ -1,0 +1,159 @@
+version: 0.1.0
+status: prospective_open_data_pivot
+study_name: TRUST-ECG
+working_title: >-
+  TRUST-ECG: Transportability-Aware and Label-Efficient Deployment Certification
+  for Multi-Source 12-Lead ECG Classification
+
+resource:
+  name: PhysioNet/Computing in Cardiology Challenge 2020
+  version: 1.0.2
+  doi: 10.13026/dvyd-kd57
+  access_policy: open
+  license: CC-BY-4.0
+  official_url: https://physionet.org/content/challenge-2020/1.0.2/
+  total_uncompressed_gb: 7.5
+  hidden_challenge_test_set:
+    use: false
+    reason: not publicly released
+
+sources:
+  development:
+    ptb_xl:
+      records: 21837
+      role: model_development_and_internal_validation
+      patientwise_split_required: true
+      official_ptb_xl_metadata_required: true
+  external_primary:
+    georgia:
+      records: 10344
+      role: external_domain_1
+    cpsc_2018:
+      records: 6877
+      role: external_domain_2
+    cpsc_2018_extra:
+      records: 3453
+      role: external_domain_3
+  non_primary:
+    ptb:
+      records: 516
+      role: descriptive_or_smoke_test_only
+    st_petersburg_incart:
+      records: 74
+      role: descriptive_or_smoke_test_only
+
+research_question: >-
+  Can a frozen 12-lead ECG classifier retain discrimination and calibration across independent
+  source datasets, and how much target-domain labeled data is required to recover reliable
+  deployment when transportability fails?
+
+prediction_task:
+  type: multi_label_classification
+  input:
+    primary: 12_lead_waveform_only
+    secondary: waveform_plus_age_sex
+  labels:
+    source: header_Dx_SNOMED_CT_codes
+    harmonization: official_challenge_equivalent_class_mapping
+    lock_before_waveform_model_training: true
+    inclusion_rules:
+      minimum_development_positive_records: 500
+      minimum_external_positive_records_per_domain: 100
+      minimum_external_domains_meeting_positive_threshold: 2
+    prohibit_posthoc_label_addition: true
+    prohibit_posthoc_label_removal_after_performance_inspection: true
+
+signal_contract:
+  target_sampling_rate_hz: 500
+  target_duration_seconds: 10
+  leads:
+    - I
+    - II
+    - III
+    - aVR
+    - aVL
+    - aVF
+    - V1
+    - V2
+    - V3
+    - V4
+    - V5
+    - V6
+  shorter_than_target: deterministic_zero_pad_and_mask
+  longer_than_target: deterministic_center_crop
+  amplitude_normalization: per_lead_training_statistics_only
+  no_external_domain_normalization_fit: true
+
+internal_validation:
+  development_source: ptb_xl
+  use_official_patientwise_stratified_folds: true
+  train_folds: [1, 2, 3, 4, 5, 6, 7, 8]
+  calibration_fold: 9
+  internal_test_fold: 10
+  external_data_for_model_selection: prohibited
+
+phase0_models:
+  logistic_regression_handcrafted:
+    enabled: true
+    role: low_capacity_reference
+  resnet1d_fixed:
+    enabled: true
+    role: fixed_waveform_baseline
+  architecture_search:
+    allowed: false
+
+primary_metrics:
+  discrimination:
+    - macro_pr_auc
+    - macro_roc_auc
+    - per_label_pr_auc
+  calibration:
+    - macro_brier
+    - per_label_brier
+    - calibration_slope
+    - calibration_intercept
+  transportability:
+    - external_to_internal_pr_auc_ratio
+    - worst_external_domain_pr_auc
+    - worst_external_domain_brier
+
+phase0_go_no_go:
+  minimum_external_domains: 3
+  require_no_patient_leakage: true
+  require_label_harmonization_audit: true
+  require_external_domain_not_used_for_tuning: true
+  minimum_macro_pr_auc_to_prevalence_ratio: 2.0
+  maximum_absolute_calibration_slope_deviation: 0.35
+  maximum_absolute_calibration_intercept: 0.75
+  rule: proceed_only_if_prespecified_transportability_and_calibration_checks_pass
+
+phase1_if_phase0_passes:
+  focus: deployment_certification_not_new_architecture
+  target_label_budgets: [0, 50, 100, 250, 500, 1000]
+  allowed_local_updates:
+    - intercept_only_recalibration
+    - platt_recalibration
+  prohibited:
+    - target_domain_model_retraining
+    - target_domain_feature_selection
+    - posthoc_threshold_search
+    - best_domain_reporting
+
+privacy_and_reproducibility:
+  data_are_public_but_waveforms_are_not_committed_to_git: true
+  derived_patient_or_record_level_predictions_not_committed: true
+  public_code_may_store_only_aggregate_results: true
+  random_seed: 20260808
+  hash_dataset_manifests: true
+  hash_final_reports: true
+
+novelty_governance:
+  novelty_claim_status: candidate_only
+  primary_contribution: cross_source_transportability_and_label_efficient_recovery
+  prohibited_claims:
+    - first_ecg_classifier
+    - first_deep_ecg_classifier
+    - first_cross_dataset_ecg_model
+    - first_domain_adaptation_ecg_framework
+  refresh_literature_before_modeling: true
+  refresh_literature_before_submission: true
