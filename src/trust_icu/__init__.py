@@ -29,6 +29,16 @@ from trust_icu.credentialed_runner import (
     execute_credentialed_run,
     prepare_eicu_mapping_tables,
 )
+from trust_icu.ecg_data import (
+    EcgHeaderAudit,
+    HeaderRecord,
+    LabelDecision,
+    build_header_audit,
+    parse_challenge_header,
+    scan_headers,
+    validate_ptbxl_folds,
+    write_header_audit,
+)
 from trust_icu.ecg_protocol import load_open_ecg_protocol, validate_open_ecg_protocol
 from trust_icu.features import (
     FeatureContract,
@@ -89,10 +99,13 @@ __all__ = [
     "CanonicalExtractAudit",
     "CredentialedRunReport",
     "DatasetAudit",
+    "EcgHeaderAudit",
     "ExportArtifact",
     "FeatureContract",
     "FeatureMatrixAudit",
     "GateDecision",
+    "HeaderRecord",
+    "LabelDecision",
     "LandmarkSpec",
     "LocalOutcomeSummary",
     "OutcomeEvidenceReport",
@@ -110,6 +123,7 @@ __all__ = [
     "build_dry_run_plan",
     "build_feature_matrix",
     "build_feature_matrix_from_extract",
+    "build_header_audit",
     "build_landmark_cohort",
     "build_local_outcome_summary",
     "build_phase0_dry_run_plan",
@@ -132,16 +146,20 @@ __all__ = [
     "load_outcome_contracts",
     "load_phase1_protocol",
     "load_source_adapter_contract",
+    "parse_challenge_header",
     "prepare_eicu_mapping_tables",
     "prepare_locked_runtime_context",
     "run_task_phase0",
+    "scan_headers",
     "temporal_patient_purged_split",
     "validate_adapter_manifest",
     "validate_open_ecg_protocol",
     "validate_outcome_evidence",
     "validate_phase1_protocol",
+    "validate_ptbxl_folds",
     "validate_source_adapter_contract",
     "verify_credentialed_run",
+    "write_header_audit",
 ]
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
