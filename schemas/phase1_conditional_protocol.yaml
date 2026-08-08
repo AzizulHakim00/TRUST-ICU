@@ -18,8 +18,8 @@ frozen_from_phase0:
   - feature_contract
   - development_selected_model
   - calibration_map
-  - primary external cohort
-  - primary feasibility_decision
+  - primary_external_cohort
+  - primary_feasibility_decision
 
 primary_question: >-
   Can a frozen ICU intervention model be certified as safe or unsafe at a new hospital using
