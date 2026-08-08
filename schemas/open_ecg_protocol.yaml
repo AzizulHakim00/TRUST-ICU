@@ -1,4 +1,4 @@
-version: 0.1.0
+version: 0.2.0
 status: prospective_open_data_pivot
 study_name: TRUST-ECG
 working_title: >-
@@ -21,9 +21,15 @@ sources:
   development:
     ptb_xl:
       records: 21837
+      source_version: 1.0.1
       role: model_development_and_internal_validation
       patientwise_split_required: true
       official_ptb_xl_metadata_required: true
+      challenge_to_original_crosswalk:
+        required: true
+        method: numeric_rank_pairing_verified_by_all_12_wfdb_checksums
+        require_every_pair_verified: true
+        prohibit_unverified_filename_formula: true
   external_primary:
     georgia:
       records: 10344
@@ -79,17 +85,29 @@ signal_contract:
     - V4
     - V5
     - V6
-  shorter_than_target: deterministic_zero_pad_and_mask
+  physical_unit: mV
+  shorter_than_target: deterministic_symmetric_zero_pad_and_mask
   longer_than_target: deterministic_center_crop
+  primary_filtering: none_beyond_physical_unit_conversion_resampling_and_windowing
+  filtering_rationale: >-
+    Avoid source-specific signal cleaning choices that could become an unregistered domain
+    harmonization step. Any filtered representation is sensitivity-only and requires a prospective
+    amendment before results are inspected.
   amplitude_normalization: per_lead_training_statistics_only
+  normalization_fit_folds: [1, 2, 3, 4, 5, 6, 7]
+  padding_excluded_from_normalization_statistics: true
   no_external_domain_normalization_fit: true
 
 internal_validation:
   development_source: ptb_xl
   use_official_patientwise_stratified_folds: true
-  train_folds: [1, 2, 3, 4, 5, 6, 7, 8]
+  model_fit_folds: [1, 2, 3, 4, 5, 6, 7]
+  optimization_validation_fold: 8
   calibration_fold: 9
   internal_test_fold: 10
+  resnet_optimization_allowed: early_stopping_epoch_only
+  all_other_phase0_hyperparameters_fixed_before_training: true
+  no_refit_using_optimization_or_calibration_fold: true
   external_data_for_model_selection: prohibited
 
 phase0_models:
@@ -121,6 +139,7 @@ phase0_go_no_go:
   minimum_external_domains: 3
   require_no_patient_leakage: true
   require_label_harmonization_audit: true
+  require_ptbxl_crosswalk_audit: true
   require_external_domain_not_used_for_tuning: true
   minimum_macro_pr_auc_to_prevalence_ratio: 2.0
   maximum_absolute_calibration_slope_deviation: 0.35
