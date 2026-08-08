@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trust-icu"
-version = "0.16.0"
+version = "0.17.0"
 description = "Transportability and deployment-certification research utilities for ICU and open ECG studies"
 readme = "README.md"
 requires-python = ">=3.11"
