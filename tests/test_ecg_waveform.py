@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import numpy as np
-from scipy.io import savemat
+from scipy.io import loadmat, savemat
 
 from trust_icu import ecg_waveform
 from trust_icu.ecg_data import EXPECTED_LEADS
