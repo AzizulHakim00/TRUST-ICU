@@ -24,8 +24,13 @@ def _mutated_protocol(tmp_path: Path, mutate) -> Path:
 def test_open_ecg_protocol_is_valid() -> None:
     report = validate_open_ecg_protocol(PROTOCOL)
     assert report["valid"] is True
+    assert report["version"] == "0.2.0"
     assert report["development_source"] == "ptb_xl"
     assert report["development_records"] == 21837
+    assert report["model_fit_folds"] == [1, 2, 3, 4, 5, 6, 7]
+    assert report["optimization_validation_fold"] == 8
+    assert report["calibration_fold"] == 9
+    assert report["internal_test_fold"] == 10
     assert report["external_sources"] == {
         "georgia": 10344,
         "cpsc_2018": 6877,
@@ -81,4 +86,37 @@ def test_label_budgets_cannot_drift(tmp_path: Path) -> None:
         ),
     )
     with pytest.raises(ValueError, match="label budgets must remain prespecified"):
+        validate_open_ecg_protocol(path)
+
+
+def test_crosswalk_requirement_cannot_be_disabled(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["sources"]["development"]["ptb_xl"][
+            "challenge_to_original_crosswalk"
+        ].update({"required": False}),
+    )
+    with pytest.raises(ValueError, match="Every Challenge/PTB-XL pair"):
+        validate_open_ecg_protocol(path)
+
+
+def test_optimization_and_calibration_folds_cannot_be_merged(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["internal_validation"].update(
+            {"optimization_validation_fold": 9}
+        ),
+    )
+    with pytest.raises(ValueError, match="fold 8 must remain optimization-only"):
+        validate_open_ecg_protocol(path)
+
+
+def test_primary_filtering_cannot_be_enabled_without_amendment(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["signal_contract"].update(
+            {"primary_filtering": "bandpass_0.5_40_hz"}
+        ),
+    )
+    with pytest.raises(ValueError, match="filtering must remain disabled"):
         validate_open_ecg_protocol(path)
