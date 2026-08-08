@@ -2,9 +2,9 @@
 
 The public package contains protocol validation, source-adapter audits, secure credentialed
 execution, evidence-based outcome locking, canonical cohort and feature construction, locked
-baselines, temporal and external Phase 0 orchestration, aggregate feasibility logic, and
-publication-grade aggregate reporting. Restricted patient-level data must remain outside the
-repository.
+baselines, temporal and external Phase 0 orchestration, aggregate feasibility logic,
+publication-grade aggregate reporting, and fail-closed conditional Phase 1 activation.
+Restricted patient-level data must remain outside the repository.
 """
 
 from trust_icu.adapter_manifest import (
@@ -60,6 +60,12 @@ from trust_icu.phase0_runtime import (
     temporal_patient_purged_split,
     verify_credentialed_run,
 )
+from trust_icu.phase1_gate import (
+    Phase1ActivationReport,
+    evaluate_phase1_activation,
+    load_phase1_protocol,
+    validate_phase1_protocol,
+)
 from trust_icu.reporting import (
     ReportingBundle,
     build_reporting_dry_run_plan,
@@ -91,6 +97,7 @@ __all__ = [
     "OutcomeLockReport",
     "OutcomeSummaryTask",
     "Phase0BaselineReport",
+    "Phase1ActivationReport",
     "ReportingBundle",
     "StudyConfig",
     "TaskPhase0Report",
@@ -108,6 +115,7 @@ __all__ = [
     "classify_event_offset_minutes",
     "evaluate_feasibility",
     "evaluate_outcome_locks",
+    "evaluate_phase1_activation",
     "evaluate_probabilities",
     "execute_credentialed_run",
     "execute_phase0_baselines",
@@ -119,6 +127,7 @@ __all__ = [
     "load_config",
     "load_feature_contract",
     "load_outcome_contracts",
+    "load_phase1_protocol",
     "load_source_adapter_contract",
     "prepare_eicu_mapping_tables",
     "prepare_locked_runtime_context",
@@ -126,8 +135,9 @@ __all__ = [
     "temporal_patient_purged_split",
     "validate_adapter_manifest",
     "validate_outcome_evidence",
+    "validate_phase1_protocol",
     "validate_source_adapter_contract",
     "verify_credentialed_run",
 ]
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
