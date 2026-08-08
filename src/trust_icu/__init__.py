@@ -1,10 +1,11 @@
-"""TRUST-ICU research utilities.
+"""TRUST-ICU and TRUST-ECG research utilities.
 
 The public package contains protocol validation, source-adapter audits, secure credentialed
 execution, evidence-based outcome locking, canonical cohort and feature construction, locked
 baselines, temporal and external Phase 0 orchestration, aggregate feasibility logic,
-publication-grade aggregate reporting, and fail-closed conditional Phase 1 activation.
-Restricted patient-level data must remain outside the repository.
+publication-grade aggregate reporting, fail-closed conditional Phase 1 activation, and the
+prospective open ECG transportability protocol. Restricted patient-level data must remain outside
+the repository.
 """
 
 from trust_icu.adapter_manifest import (
@@ -28,6 +29,7 @@ from trust_icu.credentialed_runner import (
     execute_credentialed_run,
     prepare_eicu_mapping_tables,
 )
+from trust_icu.ecg_protocol import load_open_ecg_protocol, validate_open_ecg_protocol
 from trust_icu.features import (
     FeatureContract,
     FeatureMatrixAudit,
@@ -126,6 +128,7 @@ __all__ = [
     "load_and_verify_phase0_report",
     "load_config",
     "load_feature_contract",
+    "load_open_ecg_protocol",
     "load_outcome_contracts",
     "load_phase1_protocol",
     "load_source_adapter_contract",
@@ -134,10 +137,11 @@ __all__ = [
     "run_task_phase0",
     "temporal_patient_purged_split",
     "validate_adapter_manifest",
+    "validate_open_ecg_protocol",
     "validate_outcome_evidence",
     "validate_phase1_protocol",
     "validate_source_adapter_contract",
     "verify_credentialed_run",
 ]
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
