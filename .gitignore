@@ -50,6 +50,9 @@ open_ecg_waveform_audit.json
 open_ecg_normalization_stats.json
 ptbxl_verified_assignment.csv
 open_ecg_waveform_outputs/
+open_ecg_model_index.csv
+open_ecg_model_index_audit.json
+open_ecg_model_index_outputs/
 challenge-2020/
 ptb-xl-local/
 *.mat
