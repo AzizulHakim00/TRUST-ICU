@@ -1,9 +1,10 @@
-version: 0.2.0
+version: 0.3.0
 status: prospective_open_data_pivot
 study_name: TRUST-ECG
 working_title: >-
   TRUST-ECG: Transportability-Aware and Label-Efficient Deployment Certification
   for Multi-Source 12-Lead ECG Classification
+literature_collision_audit: docs/ecg_literature_collision_audit_2026-08-08.md
 
 resource:
   name: PhysioNet/Computing in Cardiology Challenge 2020
@@ -50,8 +51,13 @@ sources:
 
 research_question: >-
   Can a frozen 12-lead ECG classifier retain discrimination and calibration across independent
-  source datasets, and how much target-domain labeled data is required to recover reliable
-  deployment when transportability fails?
+  source datasets, and how much target-domain labeled data is required to recover a prespecified
+  research deployment envelope when calibration transportability fails?
+
+interpretation_scope:
+  certification_is_research_endpoint_not_clinical_approval: true
+  prohibit_claim_of_regulatory_or_bedside_safety: true
+  failure_to_meet_envelope_means_not_certified_under_this_protocol_only: true
 
 prediction_task:
   type: multi_label_classification
@@ -110,51 +116,158 @@ internal_validation:
   no_refit_using_optimization_or_calibration_fold: true
   external_data_for_model_selection: prohibited
 
+external_partition:
+  purpose: separate_phase0_certification_from_phase1_recovery_evaluation
+  method: sha256_seeded_record_id_partition_without_labels
+  seed: 20260808
+  certification_fraction: 0.60
+  recovery_pool_fraction: 0.40
+  label_stratification: false
+  patientwise_partition_when_patient_id_unavailable: impossible_and_reported_as_limitation
+  prohibit_repartition_after_label_or_performance_inspection: true
+
 phase0_models:
+  primary_model: resnet1d_fixed
+  model_selection_between_baselines: none_primary_model_is_predeclared
   logistic_regression_handcrafted:
     enabled: true
-    role: low_capacity_reference
+    role: low_capacity_reference_only
+    signal_representation: physical_mv_after_resample_and_10s_window_before_z_normalization
+    padding_excluded_from_features: true
+    per_lead_features:
+      - mean
+      - std
+      - minimum
+      - maximum
+      - median
+      - q05
+      - q25
+      - q75
+      - q95
+      - rms
+      - mean_absolute_first_difference
+      - std_first_difference
+    feature_count: 144
+    feature_scaler: standard_scaler_fit_on_folds_1_to_7_only
+    estimator: independent_binary_logistic_regression_per_label
+    penalty: l2
+    C: 1.0
+    solver: lbfgs
+    class_weight: balanced
+    max_iter: 2000
   resnet1d_fixed:
     enabled: true
-    role: fixed_waveform_baseline
+    role: predeclared_primary_waveform_baseline_not_novel_architecture
+    input_shape: [12, 5000]
+    stem:
+      out_channels: 64
+      kernel_size: 15
+      stride: 2
+      padding: 7
+      max_pool_kernel: 3
+      max_pool_stride: 2
+      max_pool_padding: 1
+    residual_stages:
+      channels: [64, 128, 256, 512]
+      blocks_per_stage: [2, 2, 2, 2]
+      kernel_size: 7
+      downsample_first_block_of_stages: [false, true, true, true]
+    head: adaptive_average_pool_then_linear_logits
+    loss: bce_with_logits
+    positive_class_weight: computed_per_label_from_folds_1_to_7_only
+    optimizer: adamw
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    batch_size: 64
+    max_epochs: 50
+    early_stopping:
+      monitor: fold8_macro_pr_auc
+      patience_epochs: 7
+      minimum_delta: 0.0001
+      restore_best_epoch: true
+    gradient_clip_norm: 5.0
+    data_augmentation: none_primary_analysis
+    random_seed: 20260808
   architecture_search:
     allowed: false
+
+calibration:
+  method: independent_platt_scaling_per_label
+  fit_source: ptb_xl_fold_9_only
+  input_to_calibrator: raw_model_logit_or_decision_score
+  estimator: unregularized_scalar_logistic_regression
+  external_recalibration_in_phase0: prohibited
+  internal_test_recalibration: prohibited
 
 primary_metrics:
   discrimination:
     - macro_pr_auc
     - macro_roc_auc
     - per_label_pr_auc
+    - per_label_pr_auc_to_prevalence_ratio
   calibration:
     - macro_brier
     - per_label_brier
+    - per_label_brier_skill_vs_prevalence
     - calibration_slope
     - calibration_intercept
   transportability:
     - external_to_internal_pr_auc_ratio
     - worst_external_domain_pr_auc
     - worst_external_domain_brier
+    - label_domain_certification_matrix
 
 phase0_go_no_go:
+  evaluation_unit: label_domain_pair
+  model_used_for_primary_gate: resnet1d_fixed
+  external_partition_used: certification
   minimum_external_domains: 3
-  require_no_patient_leakage: true
+  minimum_positive_records_in_certification_partition: 50
+  minimum_negative_records_in_certification_partition: 50
+  require_no_patient_leakage_where_identifiers_exist: true
   require_label_harmonization_audit: true
   require_ptbxl_crosswalk_audit: true
   require_external_domain_not_used_for_tuning: true
-  minimum_macro_pr_auc_to_prevalence_ratio: 2.0
-  maximum_absolute_calibration_slope_deviation: 0.35
-  maximum_absolute_calibration_intercept: 0.75
-  rule: proceed_only_if_prespecified_transportability_and_calibration_checks_pass
+  discrimination_viability:
+    minimum_pr_auc_to_prevalence_ratio: 2.0
+  calibration_envelope:
+    maximum_absolute_calibration_slope_deviation: 0.35
+    maximum_absolute_calibration_intercept: 0.75
+    require_positive_brier_skill_vs_prevalence: true
+  pair_statuses:
+    certified: discrimination_viable_and_all_calibration_checks_pass
+    calibration_recovery_candidate: discrimination_viable_but_any_calibration_check_fails
+    discrimination_failure: discrimination_viability_check_fails
+    insufficient_support: certification_partition_support_check_fails
+  phase1_activation:
+    minimum_external_domains_with_at_least_one_recovery_candidate: 2
+    rationale: >-
+      Probability recalibration cannot repair ranking failure. Phase 1 therefore studies only
+      independently selected label-domain pairs whose discrimination remains viable but whose
+      calibration fails the prospective research envelope in the Phase 0 certification partition.
 
 phase1_if_phase0_passes:
-  focus: deployment_certification_not_new_architecture
+  focus: label_efficient_probability_recovery_not_new_architecture
+  data_source: untouched_external_recovery_pool_only
   target_label_budgets: [0, 50, 100, 250, 500, 1000]
+  sampling:
+    repeats: 100
+    seed: 20260808
+    draw_records_uniformly_without_replacement: true
+    label_stratification: false
+    budget_exceeds_available_pool: use_all_available_and_flag
+  evaluation:
+    adaptation_records_excluded_from_evaluation: true
+    minimum_positive_evaluation_records_per_label: 20
+    minimum_negative_evaluation_records_per_label: 20
+    nonestimable_repeat_is_reported_not_imputed: true
   allowed_local_updates:
     - intercept_only_recalibration
     - platt_recalibration
   prohibited:
     - target_domain_model_retraining
     - target_domain_feature_selection
+    - target_domain_normalization_refit
     - posthoc_threshold_search
     - best_domain_reporting
 
@@ -164,15 +277,20 @@ privacy_and_reproducibility:
   public_code_may_store_only_aggregate_results: true
   random_seed: 20260808
   hash_dataset_manifests: true
+  hash_raw_header_and_waveform_corpora: true
   hash_final_reports: true
 
 novelty_governance:
   novelty_claim_status: candidate_only
-  primary_contribution: cross_source_transportability_and_label_efficient_recovery
+  primary_contribution: prospective_cross_source_certification_and_label_budget_recovery
+  literature_collision_audit: docs/ecg_literature_collision_audit_2026-08-08.md
   prohibited_claims:
     - first_ecg_classifier
     - first_deep_ecg_classifier
     - first_cross_dataset_ecg_model
     - first_domain_adaptation_ecg_framework
+    - first_external_ecg_validation
+    - first_ecg_recalibration_method
+    - first_few_shot_ecg_framework
   refresh_literature_before_modeling: true
   refresh_literature_before_submission: true
