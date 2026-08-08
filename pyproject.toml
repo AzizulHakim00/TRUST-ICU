@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trust-icu"
-version = "0.10.0"
-description = "Transportable and risk-controlled prediction of ICU organ-support escalation"
+version = "0.11.0"
+description = "Transportability and deployment-certification research utilities for ICU and open ECG studies"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "TRUST-ICU contributors"}]
