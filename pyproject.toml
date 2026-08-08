@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trust-icu"
-version = "0.15.0"
+version = "0.16.0"
 description = "Transportability and deployment-certification research utilities for ICU and open ECG studies"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,6 +33,9 @@ phase0 = [
 ]
 reporting = [
   "matplotlib>=3.9,<4",
+]
+ecg-deep = [
+  "torch>=2.4,<3",
 ]
 dev = [
   "pytest>=8.3,<9",
