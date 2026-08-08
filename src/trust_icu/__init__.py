@@ -67,11 +67,13 @@ from trust_icu.ecg_manifest import (
 from trust_icu.ecg_phase0 import (
     EcgPhase0Report,
     MultiLabelMetrics,
-    build_phase0_dry_run_plan as build_open_ecg_phase0_dry_run_plan,
     execute_logistic_reference_phase0,
     load_and_verify_model_index,
     load_and_verify_normalization_stats,
     write_phase0_report,
+)
+from trust_icu.ecg_phase0 import (
+    build_phase0_dry_run_plan as build_open_ecg_phase0_dry_run_plan,
 )
 from trust_icu.ecg_protocol import load_open_ecg_protocol, validate_open_ecg_protocol
 from trust_icu.ecg_signal import (
