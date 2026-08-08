@@ -53,6 +53,8 @@ jobs:
         run: python scripts/lock_open_ecg_labels.py --dry-run
       - name: Validate open ECG waveform-stage plan
         run: python scripts/prepare_open_ecg_waveforms.py --dry-run
+      - name: Validate open ECG model-index plan
+        run: python scripts/build_open_ecg_model_index.py --dry-run
       - name: Validate locked open ECG baseline plan
         run: python scripts/validate_open_ecg_baseline_plan.py
       - name: Test
