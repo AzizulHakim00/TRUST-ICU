@@ -39,6 +39,8 @@ jobs:
         run: python scripts/run_phase0_baselines.py --dry-run
       - name: Validate publication reporting plan
         run: python scripts/generate_publication_bundle.py --dry-run
+      - name: Validate conditional Phase 1 plan
+        run: python scripts/validate_phase1_plan.py
       - name: Test
         run: pytest --cov=trust_icu --cov-report=term-missing
       - name: Synthetic end-to-end dry-run
