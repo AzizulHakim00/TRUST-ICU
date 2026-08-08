@@ -64,6 +64,15 @@ from trust_icu.ecg_manifest import (
     load_and_verify_label_manifest,
     write_label_manifest,
 )
+from trust_icu.ecg_phase0 import (
+    EcgPhase0Report,
+    MultiLabelMetrics,
+    build_phase0_dry_run_plan as build_open_ecg_phase0_dry_run_plan,
+    execute_logistic_reference_phase0,
+    load_and_verify_model_index,
+    load_and_verify_normalization_stats,
+    write_phase0_report,
+)
 from trust_icu.ecg_protocol import load_open_ecg_protocol, validate_open_ecg_protocol
 from trust_icu.ecg_signal import (
     NormalizationStats,
@@ -149,6 +158,7 @@ __all__ = [
     "DatasetAudit",
     "EcgHeaderAudit",
     "EcgLabelManifest",
+    "EcgPhase0Report",
     "EcgWaveformAudit",
     "ExportArtifact",
     "FeatureContract",
@@ -159,6 +169,7 @@ __all__ = [
     "LandmarkSpec",
     "LocalOutcomeSummary",
     "LogisticReferenceModel",
+    "MultiLabelMetrics",
     "NormalizationStats",
     "OutcomeEvidenceReport",
     "OutcomeLockReport",
@@ -187,6 +198,7 @@ __all__ = [
     "build_label_manifest",
     "build_landmark_cohort",
     "build_local_outcome_summary",
+    "build_open_ecg_phase0_dry_run_plan",
     "build_phase0_dry_run_plan",
     "build_reporting_dry_run_plan",
     "build_verified_ptbxl_assignments",
@@ -199,6 +211,7 @@ __all__ = [
     "evaluate_phase1_activation",
     "evaluate_probabilities",
     "execute_credentialed_run",
+    "execute_logistic_reference_phase0",
     "execute_phase0_baselines",
     "external_partition",
     "extract_handcrafted_features",
@@ -211,6 +224,8 @@ __all__ = [
     "load_and_validate_adapter_manifest",
     "load_and_verify_header_audit",
     "load_and_verify_label_manifest",
+    "load_and_verify_model_index",
+    "load_and_verify_normalization_stats",
     "load_and_verify_phase0_report",
     "load_and_verify_waveform_audit",
     "load_config",
@@ -243,7 +258,8 @@ __all__ = [
     "write_header_audit",
     "write_label_manifest",
     "write_normalization_stats",
+    "write_phase0_report",
     "write_ptbxl_assignment",
 ]
 
-__version__ = "0.16.0"
+__version__ = "0.18.0"
