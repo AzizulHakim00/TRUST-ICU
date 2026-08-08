@@ -11,9 +11,9 @@ import csv
 import hashlib
 import json
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 
@@ -47,6 +47,7 @@ _ALLOWED_ROLES = {
     "external_certification",
     "external_recovery_pool",
 }
+_ALLOWED_SOURCES = {"ptb-xl", "georgia", "cpsc_2018", "cpsc_2018_extra"}
 _EXTERNAL_SOURCES = ("georgia", "cpsc_2018", "cpsc_2018_extra")
 
 
@@ -94,18 +95,49 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _json_ready(value: Any) -> Any:
+    if is_dataclass(value):
+        return _json_ready(asdict(value))
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
 def _canonical_hash(payload: dict[str, Any], key: str) -> str:
     material = dict(payload)
     material[key] = ""
-    encoded = json.dumps(material, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    encoded = json.dumps(
+        _json_ready(material),
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
 def _safe_relative_path(value: str) -> Path:
+    if "\\" in value:
+        raise ValueError(f"ECG model-index paths must use POSIX separators: {value!r}")
     path = Path(value)
     if path.is_absolute() or not value or any(part in {"", ".", ".."} for part in path.parts):
         raise ValueError(f"Unsafe relative path in ECG model index: {value!r}")
     return path
+
+
+def _expected_ptb_role(fold: int) -> str:
+    if fold in range(1, 8):
+        return "model_fit"
+    if fold == 8:
+        return "optimization_validation"
+    if fold == 9:
+        return "calibration"
+    if fold == 10:
+        return "internal_test"
+    raise ValueError(f"PTB-XL fold must lie in 1..10, found {fold}")
 
 
 def load_and_verify_model_index(
@@ -143,6 +175,8 @@ def load_and_verify_model_index(
             source = str(raw["source"])
             record_id = str(raw["record_id"])
             role = str(raw["role"])
+            if source not in _ALLOWED_SOURCES:
+                raise ValueError(f"Unexpected ECG source: {source}")
             if role not in _ALLOWED_ROLES:
                 raise ValueError(f"Unexpected ECG statistical role: {role}")
             key = (source, record_id)
@@ -155,6 +189,11 @@ def load_and_verify_model_index(
             _safe_relative_path(mat_path)
             fold_text = str(raw["strat_fold"]).strip()
             fold = None if fold_text == "" else int(fold_text)
+            if source == "ptb-xl":
+                if fold is None or role != _expected_ptb_role(fold):
+                    raise ValueError(f"PTB-XL fold/role mismatch for {record_id}")
+            elif fold is not None or role not in {"external_certification", "external_recovery_pool"}:
+                raise ValueError(f"External source has invalid fold/role assignment: {key}")
             labels = tuple(int(raw[column]) for column in label_columns)
             if any(value not in (0, 1) for value in labels):
                 raise ValueError(f"Non-binary locked label vector for {key}")
@@ -176,13 +215,15 @@ def load_and_verify_model_index(
     if observed_hash != str(audit["index_sha256"]):
         raise ValueError("ECG model-index SHA-256 verification failed.")
 
-    source_counts = Counter(row.source for row in rows)
-    role_counts = Counter(row.role for row in rows)
-    expected_sources = {str(key): int(value) for key, value in dict(audit["source_rows"]).items()}
+    observed_sources = dict(sorted(Counter(row.source for row in rows).items()))
+    observed_roles = dict(sorted(Counter(row.role for row in rows).items()))
+    expected_sources = {
+        str(key): int(value) for key, value in dict(audit["source_rows"]).items()
+    }
     expected_roles = {str(key): int(value) for key, value in dict(audit["role_rows"]).items()}
-    if {key: source_counts[key] for key in expected_sources} != expected_sources:
+    if observed_sources != dict(sorted(expected_sources.items())):
         raise ValueError("ECG model-index source counts do not match its audit.")
-    if {key: role_counts[key] for key in expected_roles} != expected_roles:
+    if observed_roles != dict(sorted(expected_roles.items())):
         raise ValueError("ECG model-index role counts do not match its audit.")
 
     recovery_rows = [row for row in rows if row.role == "external_recovery_pool"]
