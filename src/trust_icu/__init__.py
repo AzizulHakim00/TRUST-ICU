@@ -246,4 +246,4 @@ __all__ = [
     "write_ptbxl_assignment",
 ]
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"
