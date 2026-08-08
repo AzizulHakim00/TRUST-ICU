@@ -130,7 +130,7 @@ def external_partition(
         raise ValueError("Source and record_id are required for deterministic external partitioning.")
     if not 0.0 < certification_fraction < 1.0:
         raise ValueError("certification_fraction must be strictly between 0 and 1.")
-    material = f"{seed}|{source}|{record_id}".encode("utf-8")
+    material = f"{seed}|{source}|{record_id}".encode()
     integer = int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
     uniform = integer / 2**64
     return "certification" if uniform < certification_fraction else "recovery_pool"
