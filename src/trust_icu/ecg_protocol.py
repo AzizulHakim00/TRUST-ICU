@@ -67,10 +67,17 @@ def validate_open_ecg_protocol(path: str | Path) -> dict[str, Any]:
     if not isinstance(development, dict) or set(development) != {"ptb_xl"}:
         raise ValueError("PTB-XL must be the sole development source in Phase 0.")
     ptb_xl = development["ptb_xl"]
-    if ptb_xl.get("records") != 21837:
-        raise ValueError("PTB-XL record count does not match the pinned public resource.")
+    if ptb_xl.get("records") != 21837 or str(ptb_xl.get("source_version")) != "1.0.1":
+        raise ValueError("PTB-XL must remain pinned to v1.0.1 with 21,837 records.")
     if ptb_xl.get("patientwise_split_required") is not True:
         raise ValueError("PTB-XL patient-wise splitting is mandatory.")
+    crosswalk = ptb_xl.get("challenge_to_original_crosswalk")
+    if not isinstance(crosswalk, dict):
+        raise ValueError("PTB-XL Challenge/original crosswalk rules are required.")
+    if crosswalk.get("required") is not True or crosswalk.get("require_every_pair_verified") is not True:
+        raise ValueError("Every Challenge/PTB-XL pair must be crosswalk-verified.")
+    if crosswalk.get("prohibit_unverified_filename_formula") is not True:
+        raise ValueError("An unverified PTB-XL filename formula must never be trusted.")
 
     external = sources.get("external_primary")
     if not isinstance(external, dict) or set(external) != set(_EXPECTED_EXTERNAL):
@@ -99,16 +106,32 @@ def validate_open_ecg_protocol(path: str | Path) -> dict[str, Any]:
         raise ValueError("Primary representation must remain 10 seconds at 500 Hz.")
     if signal.get("leads") != _EXPECTED_LEADS:
         raise ValueError("Signal contract must contain the standard 12 leads in locked order.")
+    if signal.get("physical_unit") != "mV":
+        raise ValueError("Primary signal representation must use physical millivolts.")
+    if signal.get("primary_filtering") != "none_beyond_physical_unit_conversion_resampling_and_windowing":
+        raise ValueError("Primary ECG filtering must remain disabled before prospective amendment.")
+    if signal.get("normalization_fit_folds") != [1, 2, 3, 4, 5, 6, 7]:
+        raise ValueError("Normalization may only be fitted on PTB-XL folds 1-7.")
+    if signal.get("padding_excluded_from_normalization_statistics") is not True:
+        raise ValueError("Padding must be excluded from normalization statistics.")
     if signal.get("no_external_domain_normalization_fit") is not True:
         raise ValueError("External-domain normalization fitting must remain prohibited.")
 
     validation = protocol.get("internal_validation")
     if not isinstance(validation, dict):
         raise ValueError("Internal validation contract is required.")
-    if validation.get("train_folds") != [1, 2, 3, 4, 5, 6, 7, 8]:
-        raise ValueError("PTB-XL training folds must remain 1-8.")
+    if validation.get("model_fit_folds") != [1, 2, 3, 4, 5, 6, 7]:
+        raise ValueError("PTB-XL model-fitting folds must remain 1-7.")
+    if validation.get("optimization_validation_fold") != 8:
+        raise ValueError("PTB-XL fold 8 must remain optimization-only validation.")
     if validation.get("calibration_fold") != 9 or validation.get("internal_test_fold") != 10:
-        raise ValueError("PTB-XL folds 9 and 10 must remain calibration and internal test respectively.")
+        raise ValueError("PTB-XL folds 9 and 10 must remain calibration and untouched test respectively.")
+    if validation.get("resnet_optimization_allowed") != "early_stopping_epoch_only":
+        raise ValueError("Only the ResNet stopping epoch may be optimized in Phase 0.")
+    if validation.get("all_other_phase0_hyperparameters_fixed_before_training") is not True:
+        raise ValueError("All other Phase 0 hyperparameters must be fixed before training.")
+    if validation.get("no_refit_using_optimization_or_calibration_fold") is not True:
+        raise ValueError("Optimization and calibration folds must not be folded back into model fitting.")
     if validation.get("external_data_for_model_selection") != "prohibited":
         raise ValueError("External data must not be used for model selection.")
 
@@ -118,6 +141,10 @@ def validate_open_ecg_protocol(path: str | Path) -> dict[str, Any]:
     architecture_search = models.get("architecture_search")
     if not isinstance(architecture_search, dict) or architecture_search.get("allowed") is not False:
         raise ValueError("Architecture search must remain disabled in Phase 0.")
+
+    go_no_go = protocol.get("phase0_go_no_go")
+    if not isinstance(go_no_go, dict) or go_no_go.get("require_ptbxl_crosswalk_audit") is not True:
+        raise ValueError("Phase 0 must require the PTB-XL crosswalk audit.")
 
     phase1 = protocol.get("phase1_if_phase0_passes")
     if not isinstance(phase1, dict) or phase1.get("target_label_budgets") != _EXPECTED_BUDGETS:
@@ -134,6 +161,10 @@ def validate_open_ecg_protocol(path: str | Path) -> dict[str, Any]:
         "protocol_sha256": _sha256_file(protocol_path),
         "development_source": "ptb_xl",
         "development_records": 21837,
+        "model_fit_folds": [1, 2, 3, 4, 5, 6, 7],
+        "optimization_validation_fold": 8,
+        "calibration_fold": 9,
+        "internal_test_fold": 10,
         "external_sources": dict(_EXPECTED_EXTERNAL),
         "public_primary_records": 21837 + sum(_EXPECTED_EXTERNAL.values()),
         "label_budgets": list(_EXPECTED_BUDGETS),
