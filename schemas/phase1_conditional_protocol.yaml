@@ -1,0 +1,157 @@
+version: 0.1.0
+status: inactive_until_phase0_task_passes
+study_name: TRUST-ICU Phase 1 Deployment Certification
+literature_audit: docs/literature_collision_audit_2026-08-08.md
+
+activation:
+  source_report: phase0_go_no_go.json
+  task_activation_field: feasibility_decision.continue_to_architecture_development
+  minimum_eligible_tasks: 1
+  require_verified_phase0_hash: true
+  require_locked_outcome_contracts: true
+  prohibit_activation_from_synthetic_report: true
+
+frozen_from_phase0:
+  - outcome_definition
+  - observation_window
+  - prediction_window
+  - feature_contract
+  - development_selected_model
+  - calibration_map
+  - primary external cohort
+  - primary feasibility_decision
+
+primary_question: >-
+  Can a frozen ICU intervention model be certified as safe or unsafe at a new hospital using
+  prespecified transportability diagnostics, and how much local outcome-labeled data is required
+  to restore calibration and risk control when certification fails?
+
+unit_of_analysis:
+  deployment_unit: hospital
+  patient_level_predictions_may_be_used_in_secure_runtime: true
+  hospital_identifiers_may_not_be_written_to_public_outputs: true
+
+eligible_tasks:
+  - invasive_mechanical_ventilation
+  - vasopressor_initiation
+  - renal_replacement_therapy
+
+site_eligibility:
+  minimum_rows: 200
+  minimum_positive_events: 20
+  minimum_negative_events: 20
+  smaller_sites:
+    retain_for_aggregate_descriptive_counts: true
+    exclude_from_site_metric_primary_analysis: true
+
+site_failure_envelope:
+  source: phase0_prespecified_gates_and_fixed_operating_policy
+  calibration_slope_absolute_deviation_from_one_max: 0.35
+  calibration_intercept_absolute_max: 0.75
+  pr_auc_prevalence_ratio_min: 2.0
+  no_post_index_leakage_required: true
+  rule: any_required_failure_marks_site_not_certified
+  note: >-
+    These thresholds are inherited from Phase 0 where applicable. No threshold may be relaxed
+    after inspecting hospital-level eICU results.
+
+shift_descriptors:
+  label_free:
+    - absolute_missingness_difference
+    - measurement_count_shift
+    - feature_mean_standardized_difference
+    - feature_median_shift
+    - univariate_wasserstein_distance
+    - categorical_case_mix_shift
+  label_dependent_secondary:
+    - outcome_prevalence_shift
+  prohibited:
+    - hospital_identifier_as_predictor
+    - post_outcome_information
+    - externally_tuned_feature_subset
+
+local_label_budgets:
+  samples_per_site:
+    - 0
+    - 50
+    - 100
+    - 250
+    - 500
+    - 1000
+  sampling:
+    repeats: 100
+    seed: 20260808
+    stratified_when_feasible: true
+    without_replacement: true
+  stop_if_site_has_fewer_than_requested: use_all_available_and_flag
+
+localization_baselines:
+  frozen_no_update:
+    allowed: true
+  intercept_only_recalibration:
+    allowed: true
+    fit_on_target_labels_only: true
+  platt_recalibration:
+    allowed: true
+    fit_on_target_labels_only: true
+  isotonic_recalibration:
+    allowed: false
+    reason: unstable_at_small_prespecified_label_budgets
+  model_retraining:
+    allowed: false
+    reason: phase1_focus_is_deployment_certification_not_target_model_redevelopment
+  fine_tuning:
+    allowed: false
+  external_feature_selection:
+    allowed: false
+
+uncertainty_and_deferral_benchmarks:
+  role: secondary_benchmark_not_novelty_claim
+  allowed:
+    - split_conformal
+    - mondrian_group_conditional_conformal
+    - weighted_conformal
+    - fixed_cost_selective_deferral
+  prohibited_claims:
+    - first_conformal_clinical_framework
+    - first_hierarchical_hospital_conformal_method
+    - first_site_shrinkage_conformal_method
+
+primary_outputs:
+  - eligible_hospital_count
+  - site_certification_failure_rate
+  - median_and_worst_site_calibration
+  - median_and_worst_site_pr_auc_prevalence_ratio
+  - label_budget_to_recover_certification
+  - failure_rate_by_label_budget
+  - shift_descriptor_association_with_failure
+
+statistics:
+  hospital_cluster_bootstrap_iterations: 2000
+  confidence_level: 0.95
+  multiplicity_policy: >-
+    Primary site-certification endpoints are prespecified. Shift-descriptor associations are
+    exploratory unless promoted by a prospective amendment before secure Phase 1 execution.
+  report_effect_sizes_and_intervals: true
+  prohibit_best_site_reporting: true
+  prohibit_posthoc_threshold_optimization: true
+
+replication:
+  later_databases:
+    - amsterdamumcdb_1_5_0
+    - hirid_1_1_1
+  activation: after_phase1_eicu_protocol_is_frozen
+  purpose: database_level_replication_not_method_tuning
+
+novelty_governance:
+  novelty_claim_status: candidate_only
+  refresh_literature_before_execution: true
+  refresh_literature_before_submission: true
+  prohibited_claims_reference: docs/literature_collision_audit_2026-08-08.md
+
+privacy:
+  public_outputs_aggregate_only: true
+  prohibit_patient_identifiers: true
+  prohibit_hospital_identifiers: true
+  prohibit_row_level_predictions: true
+  secure_runtime_required_for_patient_level_analysis: true
