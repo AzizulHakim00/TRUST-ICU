@@ -19,7 +19,11 @@ SCORED_MAPPING = ROOT / "schemas/challenge2020_scored_classes.csv"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--header-root", help="Local directory containing the four Challenge source folders.")
-    parser.add_argument("--ptbxl-metadata", help="Path to official ptbxl_database.csv.")
+    parser.add_argument("--ptbxl-metadata", help="Path to PTB-XL v1.0.1 ptbxl_database.csv.")
+    parser.add_argument(
+        "--ptbxl-original-root",
+        help="Local PTB-XL v1.0.1 root containing records500 headers for checksum crosswalk verification.",
+    )
     parser.add_argument(
         "--output",
         default="open_ecg_header_audit.json",
@@ -49,12 +53,18 @@ def _download_plan() -> dict:
             "cpsc_2018": f"{base}/cpsc_2018/",
             "cpsc_2018_extra": f"{base}/cpsc_2018_extra/",
         },
-        "header_only_example": (
+        "challenge_header_only_example": (
             "wget -r -N -c -np -A '*.hea' "
             "https://physionet.org/files/challenge-2020/1.0.2/training/ptb-xl/"
         ),
-        "ptbxl_metadata_url": "https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv",
-        "reason": "Do not download waveforms or train models until label and fold feasibility passes.",
+        "ptbxl_v1_0_1_metadata_url": "https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv",
+        "ptbxl_v1_0_1_header_root_url": "https://physionet.org/files/ptb-xl/1.0.1/records500/",
+        "crosswalk_rule": (
+            "Do not trust a filename formula. Numerically rank-pair Challenge PTB-XL records with "
+            "official ecg_id rows and require every pair to match all 12 WFDB checksums, sampling "
+            "rate, sample count, and lead order."
+        ),
+        "reason": "Do not download waveforms or train models until label, fold, and record-crosswalk feasibility passes.",
     }
 
 
@@ -63,8 +73,14 @@ def main() -> int:
     if args.dry_run:
         print(json.dumps(_download_plan(), indent=2, sort_keys=True))
         return 0
-    if not args.header_root or not args.ptbxl_metadata:
-        raise SystemExit("--header-root and --ptbxl-metadata are required outside --dry-run")
+    required = {
+        "--header-root": args.header_root,
+        "--ptbxl-metadata": args.ptbxl_metadata,
+        "--ptbxl-original-root": args.ptbxl_original_root,
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        raise SystemExit(f"Required outside --dry-run: {', '.join(missing)}")
 
     protocol = _protocol()
     rules = protocol["prediction_task"]["labels"]["inclusion_rules"]
@@ -73,6 +89,7 @@ def main() -> int:
         records=records,
         scored_mapping_path=SCORED_MAPPING,
         ptbxl_metadata_csv=args.ptbxl_metadata,
+        ptbxl_original_root=args.ptbxl_original_root,
         protocol_version=str(protocol["version"]),
         minimum_development_positives=int(rules["minimum_development_positive_records"]),
         minimum_external_positives=int(rules["minimum_external_positive_records_per_domain"]),
@@ -85,6 +102,7 @@ def main() -> int:
                 "ready_for_waveform_stage": audit.ready_for_waveform_stage,
                 "eligible_label_count": len(audit.eligible_labels),
                 "eligible_labels": audit.eligible_labels,
+                "ptbxl_crosswalk_valid": bool(audit.ptbxl_crosswalk.get("valid", False)),
                 "blockers": audit.blockers,
                 "manifest_sha256": audit.manifest_sha256,
                 "output": str(Path(args.output).resolve()),
