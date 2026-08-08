@@ -2,7 +2,7 @@ name: Phase 0 CI
 
 on:
   push:
-    branches: [main, phase-0-feasibility]
+    branches: [main, phase-0-feasibility, open-ecg-transportability]
   pull_request:
 
 permissions:
@@ -41,6 +41,8 @@ jobs:
         run: python scripts/generate_publication_bundle.py --dry-run
       - name: Validate conditional Phase 1 plan
         run: python scripts/validate_phase1_plan.py
+      - name: Validate open ECG transportability protocol
+        run: python scripts/validate_open_ecg_protocol.py
       - name: Test
         run: pytest --cov=trust_icu --cov-report=term-missing
       - name: Synthetic end-to-end dry-run
