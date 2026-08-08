@@ -30,6 +30,7 @@ class HeaderRecord:
     age: str | None
     sex: str | None
     dx_codes: tuple[str, ...]
+    signal_checksums: tuple[int, ...] = ()
 
     @property
     def duration_seconds(self) -> float:
@@ -57,8 +58,9 @@ class EcgHeaderAudit:
     source_duration_seconds: dict[str, dict[str, float]]
     records_with_non_12_lead_contract: dict[str, int]
     records_missing_dx: dict[str, int]
-    unknown_scored_codes: dict[str, int]
+    unscored_dx_occurrences: dict[str, int]
     ptbxl_fold_integrity: dict[str, Any]
+    ptbxl_crosswalk: dict[str, Any]
     labels: tuple[LabelDecision, ...]
     eligible_labels: tuple[str, ...]
     ready_for_waveform_stage: bool
@@ -78,11 +80,22 @@ def _parse_rate(token: str) -> float:
     return float(token.split("/", 1)[0])
 
 
+def _numeric_record_id(record_id: str) -> int:
+    digits = "".join(char for char in record_id if char.isdigit())
+    if not digits:
+        raise ValueError(f"Record ID does not contain a numeric component: {record_id!r}")
+    return int(digits)
+
+
 def parse_challenge_header(path: str | Path, *, source: str) -> HeaderRecord:
-    """Parse one Challenge 2020 WFDB .hea file without loading waveform samples."""
+    """Parse one WFDB .hea file without loading waveform samples."""
 
     header_path = Path(path)
-    lines = [line.strip() for line in header_path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    lines = [
+        line.strip()
+        for line in header_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line.strip()
+    ]
     if not lines:
         raise ValueError(f"Empty ECG header: {header_path}")
     first = lines[0].split()
@@ -96,7 +109,20 @@ def parse_challenge_header(path: str | Path, *, source: str) -> HeaderRecord:
         raise ValueError(f"Invalid signal dimensions: {header_path}")
     if len(lines) < 1 + n_sig:
         raise ValueError(f"Missing WFDB signal specification lines: {header_path}")
-    lead_names = tuple(lines[index].split()[-1] for index in range(1, 1 + n_sig))
+
+    signal_tokens = [lines[index].split() for index in range(1, 1 + n_sig)]
+    lead_names = tuple(tokens[-1] for tokens in signal_tokens)
+    checksums: list[int] = []
+    for tokens in signal_tokens:
+        if len(tokens) < 9:
+            checksums = []
+            break
+        try:
+            checksums.append(int(tokens[-3]))
+        except ValueError:
+            checksums = []
+            break
+
     comments: dict[str, str] = {}
     for line in lines[1 + n_sig :]:
         if not line.startswith("#") or ":" not in line:
@@ -113,6 +139,7 @@ def parse_challenge_header(path: str | Path, *, source: str) -> HeaderRecord:
         age=comments.get("age"),
         sex=comments.get("sex"),
         dx_codes=dx,
+        signal_checksums=tuple(checksums),
     )
 
 
@@ -166,39 +193,140 @@ def _count_group_positive_records(
     return counts
 
 
+def _read_ptbxl_metadata(metadata_csv: str | Path | None) -> tuple[list[dict[str, str]], str | None]:
+    if metadata_csv is None:
+        return [], "ptbxl_metadata_missing"
+    path = Path(metadata_csv).expanduser().resolve()
+    if not path.is_file():
+        return [], "ptbxl_metadata_not_found"
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        required = {"ecg_id", "patient_id", "strat_fold", "filename_hr"}
+        if not required.issubset(reader.fieldnames or []):
+            return [], "ptbxl_metadata_columns_missing"
+        rows = [dict(row) for row in reader]
+    return rows, None
+
+
 def validate_ptbxl_folds(metadata_csv: str | Path | None) -> dict[str, Any]:
     """Verify the official PTB-XL patient-wise fold invariant from metadata only."""
 
-    if metadata_csv is None:
-        return {"provided": False, "valid": False, "blocker": "ptbxl_metadata_missing"}
-    path = Path(metadata_csv).expanduser().resolve()
-    if not path.is_file():
-        return {"provided": True, "valid": False, "blocker": "ptbxl_metadata_not_found"}
+    rows, error = _read_ptbxl_metadata(metadata_csv)
+    if error:
+        return {"provided": metadata_csv is not None, "valid": False, "blocker": error}
     patient_folds: dict[str, set[int]] = defaultdict(set)
     fold_counts: Counter[int] = Counter()
-    row_count = 0
-    with path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        required = {"patient_id", "strat_fold"}
-        if not required.issubset(reader.fieldnames or []):
-            return {"provided": True, "valid": False, "blocker": "ptbxl_metadata_columns_missing"}
-        for row in reader:
-            row_count += 1
-            patient_id = str(row["patient_id"])
-            fold = int(row["strat_fold"])
-            patient_folds[patient_id].add(fold)
-            fold_counts[fold] += 1
+    for row in rows:
+        patient_id = str(row["patient_id"])
+        fold = int(row["strat_fold"])
+        patient_folds[patient_id].add(fold)
+        fold_counts[fold] += 1
     leaking_patients = sum(1 for folds in patient_folds.values() if len(folds) > 1)
     folds_present = sorted(fold_counts)
     valid = leaking_patients == 0 and folds_present == list(range(1, 11))
     return {
         "provided": True,
         "valid": valid,
-        "rows": row_count,
+        "rows": len(rows),
         "unique_patients": len(patient_folds),
         "patients_spanning_multiple_folds": leaking_patients,
         "folds_present": folds_present,
         "fold_record_counts": {str(key): fold_counts[key] for key in folds_present},
+    }
+
+
+def validate_ptbxl_crosswalk(
+    *,
+    challenge_records: list[HeaderRecord],
+    metadata_csv: str | Path | None,
+    original_ptbxl_root: str | Path | None,
+) -> dict[str, Any]:
+    """Verify a rank-based Challenge/PTB-XL record crosswalk using all WFDB lead checksums.
+
+    The routine does not trust a filename formula. It pairs the numerically sorted Challenge
+    PTB-XL records with metadata rows sorted by official ``ecg_id`` and then requires the paired
+    original PTB-XL v1.0.1 header to agree on all 12 signal checksums, sampling rate, sample count,
+    and lead order. The crosswalk is valid only when every record verifies.
+    """
+
+    rows, error = _read_ptbxl_metadata(metadata_csv)
+    if error:
+        return {"required": True, "valid": False, "blocker": error}
+    if original_ptbxl_root is None:
+        return {"required": True, "valid": False, "blocker": "ptbxl_original_header_root_missing"}
+    root = Path(original_ptbxl_root).expanduser().resolve()
+    if not root.is_dir():
+        return {"required": True, "valid": False, "blocker": "ptbxl_original_header_root_not_found"}
+
+    challenge = sorted(
+        (record for record in challenge_records if record.source == "ptb-xl"),
+        key=lambda record: _numeric_record_id(record.record_id),
+    )
+    metadata = sorted(rows, key=lambda row: int(row["ecg_id"]))
+    if len(challenge) != len(metadata):
+        return {
+            "required": True,
+            "valid": False,
+            "blocker": "ptbxl_crosswalk_row_count_mismatch",
+            "challenge_records": len(challenge),
+            "metadata_rows": len(metadata),
+        }
+
+    challenge_numbers = [_numeric_record_id(record.record_id) for record in challenge]
+    consecutive_ids = bool(challenge_numbers) and challenge_numbers == list(
+        range(challenge_numbers[0], challenge_numbers[0] + len(challenge_numbers))
+    )
+    missing_original_headers = 0
+    checksum_unavailable = 0
+    structural_mismatches = 0
+    checksum_mismatches = 0
+    verified = 0
+
+    for challenge_record, row in zip(challenge, metadata, strict=True):
+        relative = Path(str(row["filename_hr"]) + ".hea")
+        original_path = root / relative
+        if not original_path.is_file():
+            missing_original_headers += 1
+            continue
+        original = parse_challenge_header(original_path, source="ptbxl_original")
+        structural_match = (
+            challenge_record.sampling_rate_hz == original.sampling_rate_hz
+            and challenge_record.sample_count == original.sample_count
+            and challenge_record.lead_names == original.lead_names
+        )
+        if not structural_match:
+            structural_mismatches += 1
+            continue
+        if len(challenge_record.signal_checksums) != len(EXPECTED_LEADS) or len(
+            original.signal_checksums
+        ) != len(EXPECTED_LEADS):
+            checksum_unavailable += 1
+            continue
+        if challenge_record.signal_checksums != original.signal_checksums:
+            checksum_mismatches += 1
+            continue
+        verified += 1
+
+    valid = (
+        consecutive_ids
+        and missing_original_headers == 0
+        and checksum_unavailable == 0
+        and structural_mismatches == 0
+        and checksum_mismatches == 0
+        and verified == len(challenge)
+    )
+    return {
+        "required": True,
+        "valid": valid,
+        "method": "numeric_rank_pairing_verified_by_all_12_wfdb_checksums",
+        "challenge_records": len(challenge),
+        "metadata_rows": len(metadata),
+        "challenge_numeric_ids_consecutive": consecutive_ids,
+        "missing_original_headers": missing_original_headers,
+        "checksum_unavailable": checksum_unavailable,
+        "structural_mismatches": structural_mismatches,
+        "checksum_mismatches": checksum_mismatches,
+        "verified_pairs": verified,
     }
 
 
@@ -207,6 +335,8 @@ def build_header_audit(
     records: list[HeaderRecord],
     scored_mapping_path: str | Path,
     ptbxl_metadata_csv: str | Path | None,
+    ptbxl_original_root: str | Path | None = None,
+    require_ptbxl_crosswalk: bool = True,
     protocol_version: str = "0.1.0",
     minimum_development_positives: int = 500,
     minimum_external_positives: int = 100,
@@ -222,7 +352,7 @@ def build_header_audit(
     bad_leads = Counter()
     missing_dx = Counter()
     scored_member_codes = {code for meta in mapping.values() for code in meta["member_codes"]}
-    unknown_scored = Counter()
+    unscored_dx = Counter()
     for record in records:
         sampling_rates[record.source].add(record.sampling_rate_hz)
         durations[record.source].append(record.duration_seconds)
@@ -232,7 +362,7 @@ def build_header_audit(
             missing_dx[record.source] += 1
         for code in record.dx_codes:
             if code.isdigit() and code not in scored_member_codes:
-                unknown_scored[record.source] += 1
+                unscored_dx[record.source] += 1
 
     labels: list[LabelDecision] = []
     for canonical in sorted(mapping, key=int):
@@ -253,6 +383,15 @@ def build_header_audit(
         )
 
     ptbxl_fold_integrity = validate_ptbxl_folds(ptbxl_metadata_csv)
+    ptbxl_crosswalk = (
+        validate_ptbxl_crosswalk(
+            challenge_records=records,
+            metadata_csv=ptbxl_metadata_csv,
+            original_ptbxl_root=ptbxl_original_root,
+        )
+        if require_ptbxl_crosswalk
+        else {"required": False, "valid": True, "method": "disabled_for_test_or_nonproduction_audit"}
+    )
     source_count_matches = {
         source: source_counts[source] == expected for source, expected in EXPECTED_SOURCES.items()
     }
@@ -265,6 +404,8 @@ def build_header_audit(
         blockers.append("headers_missing_diagnosis_codes")
     if not ptbxl_fold_integrity.get("valid", False):
         blockers.append("ptbxl_patientwise_fold_integrity_not_verified")
+    if not ptbxl_crosswalk.get("valid", False):
+        blockers.append("challenge_ptbxl_crosswalk_not_verified")
     eligible_labels = tuple(decision.canonical_code for decision in labels if decision.eligible)
     if not eligible_labels:
         blockers.append("no_labels_meet_prespecified_transportability_counts")
@@ -286,8 +427,9 @@ def build_header_audit(
         "source_duration_seconds": duration_summary,
         "records_with_non_12_lead_contract": {source: bad_leads[source] for source in EXPECTED_SOURCES},
         "records_missing_dx": {source: missing_dx[source] for source in EXPECTED_SOURCES},
-        "unknown_scored_codes": {source: unknown_scored[source] for source in EXPECTED_SOURCES},
+        "unscored_dx_occurrences": {source: unscored_dx[source] for source in EXPECTED_SOURCES},
         "ptbxl_fold_integrity": ptbxl_fold_integrity,
+        "ptbxl_crosswalk": ptbxl_crosswalk,
         "labels": [asdict(label) for label in labels],
         "eligible_labels": eligible_labels,
         "ready_for_waveform_stage": not blockers,
@@ -304,8 +446,9 @@ def build_header_audit(
         source_duration_seconds=duration_summary,
         records_with_non_12_lead_contract=material["records_with_non_12_lead_contract"],
         records_missing_dx=material["records_missing_dx"],
-        unknown_scored_codes=material["unknown_scored_codes"],
+        unscored_dx_occurrences=material["unscored_dx_occurrences"],
         ptbxl_fold_integrity=ptbxl_fold_integrity,
+        ptbxl_crosswalk=ptbxl_crosswalk,
         labels=tuple(labels),
         eligible_labels=eligible_labels,
         ready_for_waveform_stage=not blockers,
