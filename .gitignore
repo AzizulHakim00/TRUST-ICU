@@ -43,6 +43,17 @@ outcome_validation_evidence.json
 outcome_lock_report.json
 trust_icu_locked_runtime/
 
+# Pre-publication aggregate reporting outputs
+trust_icu_reporting/
+reproducibility_manifest.json
+tripod_ai_traceability.csv
+probast_ai_self_audit.csv
+table_1_cohort_summary.csv
+table_2_model_performance.csv
+table_3_external_robustness.csv
+figure_external_performance.png
+figure_calibration_transportability.png
+
 # Credentials and access material
 credentials/
 secrets/
