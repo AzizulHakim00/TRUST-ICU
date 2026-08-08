@@ -28,7 +28,7 @@ def _hash(payload: dict, key: str) -> str:
 
 def _write_valid_audit(path: Path) -> Path:
     payload = {
-        "protocol_version": "0.2.0",
+        "protocol_version": "0.3.0",
         "ready_for_waveform_stage": True,
         "ptbxl_crosswalk": {"valid": True},
         "eligible_labels": ["164889003", "426783006"],
