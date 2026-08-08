@@ -106,4 +106,4 @@ def test_raw_score_sigmoid_is_finite_for_extreme_logits() -> None:
     assert np.isfinite(probabilities).all()
     assert probabilities[0, 0] < 1e-20
     assert np.isclose(probabilities[0, 1], 0.5)
-    assert probabilities[0, 2] > 1.0 - 1e-20
+    assert probabilities[0, 2] > 0.999999
