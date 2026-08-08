@@ -1,0 +1,28 @@
+canonical_code,member_code,abbreviation,diagnosis,official_ptb_xl,official_georgia,official_cpsc_2018,official_cpsc_2018_extra
+270492004,270492004,IAVB,1st degree av block,797,769,722,106
+164889003,164889003,AF,atrial fibrillation,1514,570,1221,153
+164890007,164890007,AFL,atrial flutter,73,186,0,54
+426627000,426627000,Brady,bradycardia,0,6,0,271
+59118001,713427006,RBBB,complete right bundle branch block,542,28,0,113
+713426002,713426002,IRBBB,incomplete right bundle branch block,1118,407,0,86
+445118002,445118002,LAnFB,left anterior fascicular block,1626,180,0,0
+39732003,39732003,LAD,left axis deviation,5146,940,0,0
+164909002,164909002,LBBB,left bundle branch block,536,231,236,38
+251146004,251146004,LQRSV,low qrs voltages,182,374,0,0
+698252002,698252002,NSIVCB,nonspecific intraventricular conduction disorder,789,203,0,4
+10370003,10370003,PR,pacing rhythm,296,0,0,3
+284470004,284470004,PAC,premature atrial contraction,398,639,616,73
+284470004,63593006,PAC,supraventricular premature beats,157,1,0,53
+427172004,427172004,PVC,premature ventricular contractions,0,0,0,188
+164947007,164947007,LPR,prolonged pr interval,340,0,0,0
+111975006,111975006,LQT,prolonged qt interval,118,1391,0,4
+164917005,164917005,QAb,qwave abnormal,548,464,0,1
+47665007,47665007,RAD,right axis deviation,343,83,0,1
+59118001,59118001,RBBB,right bundle branch block,0,542,1857,1
+427393009,427393009,SA,sinus arrhythmia,772,455,0,11
+426177001,426177001,SB,sinus bradycardia,637,1677,0,45
+426783006,426783006,NSR,sinus rhythm,18092,1752,918,4
+427084000,427084000,STach,sinus tachycardia,826,1261,0,303
+164934002,164934002,TAb,t wave abnormal,2345,2306,0,22
+59931005,59931005,TInv,t wave inversion,294,812,0,5
+427172004,17338001,PVC,ventricular premature beats,0,357,0,8
