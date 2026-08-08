@@ -371,7 +371,7 @@ def generate_publication_bundle(
 
     report = load_and_verify_phase0_report(phase0_report)
     contract_path = root / "schemas/reporting_contract.yaml"
-    contract = _load_contract(contract_path)
+    _load_contract(contract_path)
 
     table1 = output / "table_1_cohort_summary.csv"
     table2 = output / "table_2_model_performance.csv"
