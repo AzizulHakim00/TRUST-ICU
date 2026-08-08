@@ -53,6 +53,11 @@ open_ecg_waveform_outputs/
 open_ecg_model_index.csv
 open_ecg_model_index_audit.json
 open_ecg_model_index_outputs/
+open_ecg_phase0_outputs/
+open_ecg_phase0_logistic_report.json
+open_ecg_phase0_resnet_report.json
+open_ecg_resnet_calibration.json
+open_ecg_resnet_training_history.json
 challenge-2020/
 ptb-xl-local/
 *.mat
