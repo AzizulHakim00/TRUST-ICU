@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trust-icu"
-version = "0.12.0"
+version = "0.13.0"
 description = "Transportability and deployment-certification research utilities for ICU and open ECG studies"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,6 +14,7 @@ dependencies = [
   "pandas>=2.2,<3",
   "pyyaml>=6.0,<7",
   "scikit-learn>=1.6,<2",
+  "scipy>=1.13,<2",
 ]
 
 [project.optional-dependencies]
