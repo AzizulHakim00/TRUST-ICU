@@ -5,7 +5,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from trust_icu.ecg_resnet import (
+from trust_icu.ecg_resnet import (  # noqa: E402
     FixedResNet1D,
     ResNet1DContract,
     compute_positive_class_weights,
