@@ -60,6 +60,15 @@ from trust_icu.ecg_signal import (
     standardize_signal,
     write_normalization_stats,
 )
+from trust_icu.ecg_waveform import (
+    EcgWaveformAudit,
+    PtbxlAssignment,
+    assignment_sha256,
+    build_verified_ptbxl_assignments,
+    load_and_verify_waveform_audit,
+    prepare_waveform_stage,
+    write_ptbxl_assignment,
+)
 from trust_icu.features import (
     FeatureContract,
     FeatureMatrixAudit,
@@ -121,6 +130,7 @@ __all__ = [
     "DatasetAudit",
     "EcgHeaderAudit",
     "EcgLabelManifest",
+    "EcgWaveformAudit",
     "ExportArtifact",
     "FeatureContract",
     "FeatureMatrixAudit",
@@ -135,6 +145,7 @@ __all__ = [
     "OutcomeSummaryTask",
     "Phase0BaselineReport",
     "Phase1ActivationReport",
+    "PtbxlAssignment",
     "ReportingBundle",
     "SignalSpec",
     "StandardizedSignal",
@@ -144,6 +155,7 @@ __all__ = [
     "VariableSpec",
     "assert_task_training_allowed",
     "assign_task_labels",
+    "assignment_sha256",
     "audit_canonical_extract",
     "build_dry_run_plan",
     "build_feature_matrix",
@@ -154,6 +166,7 @@ __all__ = [
     "build_local_outcome_summary",
     "build_phase0_dry_run_plan",
     "build_reporting_dry_run_plan",
+    "build_verified_ptbxl_assignments",
     "classify_event_offset_minutes",
     "digital_to_physical_mv",
     "evaluate_feasibility",
@@ -169,6 +182,7 @@ __all__ = [
     "load_and_verify_header_audit",
     "load_and_verify_label_manifest",
     "load_and_verify_phase0_report",
+    "load_and_verify_waveform_audit",
     "load_config",
     "load_feature_contract",
     "load_mat_digital_signal",
@@ -181,6 +195,7 @@ __all__ = [
     "parse_signal_header",
     "prepare_eicu_mapping_tables",
     "prepare_locked_runtime_context",
+    "prepare_waveform_stage",
     "run_task_phase0",
     "scan_headers",
     "standardize_signal",
@@ -196,6 +211,7 @@ __all__ = [
     "write_header_audit",
     "write_label_manifest",
     "write_normalization_stats",
+    "write_ptbxl_assignment",
 ]
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
