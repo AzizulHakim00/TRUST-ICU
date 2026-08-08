@@ -96,7 +96,7 @@ def _write_metadata(path: Path, original_root: Path) -> Path:
 
 def _write_header_audit(path: Path) -> Path:
     payload = {
-        "protocol_version": "0.2.0",
+        "protocol_version": "0.3.0",
         "ready_for_waveform_stage": True,
         "ptbxl_crosswalk": {"valid": True},
         "eligible_labels": ["426783006"],
