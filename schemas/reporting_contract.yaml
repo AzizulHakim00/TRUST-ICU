@@ -1,0 +1,42 @@
+contract_version: "0.1.0"
+created_on: "2026-08-08"
+source_artifact: phase0_go_no_go.json
+source_requirements:
+  verify_report_sha256: true
+  require_aggregate_only_input: true
+  require_three_primary_tasks: true
+  prohibit_patient_identifiers: true
+  prohibit_hospital_identifiers: true
+  prohibit_prediction_rows: true
+outputs:
+  - reproducibility_manifest.json
+  - tripod_ai_traceability.csv
+  - probast_ai_self_audit.csv
+  - table_1_cohort_summary.csv
+  - table_2_model_performance.csv
+  - table_3_external_robustness.csv
+  - figure_external_performance.png
+  - figure_calibration_transportability.png
+reporting_guidance:
+  tripod_ai:
+    publication: "BMJ 2024;385:e078378"
+    scope: prediction_model_reporting
+    note: evidence_to_section_traceability_only
+  probast_ai:
+    publication: "BMJ 2025;388:e082505"
+    scope: development_and_evaluation_quality_risk_of_bias_applicability
+    domains:
+      - participants_and_data_sources
+      - predictors
+      - outcome
+      - analysis
+    note: internal_self_audit_not_formal_risk_of_bias_judgment
+privacy:
+  aggregate_only: true
+  minimum_allowed_reported_hospital_metric_group_size: 1
+  generated_outputs_must_remain_outside_repository_until_publication_review: true
+integrity:
+  hash_algorithm: sha256
+  include_source_report_hash: true
+  include_contract_hash: true
+  deterministic_tables: true
