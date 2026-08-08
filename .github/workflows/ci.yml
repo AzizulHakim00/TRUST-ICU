@@ -57,6 +57,10 @@ jobs:
         run: python scripts/build_open_ecg_model_index.py --dry-run
       - name: Validate locked open ECG baseline plan
         run: python scripts/validate_open_ecg_baseline_plan.py
+      - name: Validate open ECG Phase 0 execution plans
+        run: |
+          python scripts/run_open_ecg_phase0.py --model logistic --dry-run
+          python scripts/run_open_ecg_phase0.py --model resnet --dry-run
       - name: Test
         run: pytest --cov=trust_icu --cov-report=term-missing
       - name: Synthetic end-to-end dry-run
