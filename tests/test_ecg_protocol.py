@@ -24,7 +24,7 @@ def _mutated_protocol(tmp_path: Path, mutate) -> Path:
 def test_open_ecg_protocol_is_valid() -> None:
     report = validate_open_ecg_protocol(PROTOCOL)
     assert report["valid"] is True
-    assert report["version"] == "0.2.0"
+    assert report["version"] == "0.3.0"
     assert report["development_source"] == "ptb_xl"
     assert report["development_records"] == 21837
     assert report["model_fit_folds"] == [1, 2, 3, 4, 5, 6, 7]
@@ -36,7 +36,11 @@ def test_open_ecg_protocol_is_valid() -> None:
         "cpsc_2018": 6877,
         "cpsc_2018_extra": 3453,
     }
+    assert report["external_certification_fraction"] == 0.60
+    assert report["external_recovery_fraction"] == 0.40
     assert report["public_primary_records"] == 42511
+    assert report["primary_model"] == "resnet1d_fixed"
+    assert report["logistic_feature_count"] == 144
     assert report["architecture_search_allowed"] is False
 
 
@@ -75,6 +79,55 @@ def test_architecture_search_cannot_be_enabled(tmp_path: Path) -> None:
         lambda payload: payload["phase0_models"]["architecture_search"].update({"allowed": True}),
     )
     with pytest.raises(ValueError, match="Architecture search must remain disabled"):
+        validate_open_ecg_protocol(path)
+
+
+def test_primary_model_cannot_be_selected_from_results(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["phase0_models"].update({"primary_model": "logistic_regression_handcrafted"}),
+    )
+    with pytest.raises(ValueError, match="ResNet must remain the predeclared primary model"):
+        validate_open_ecg_protocol(path)
+
+
+def test_logistic_feature_contract_cannot_drift(tmp_path: Path) -> None:
+    def mutate(payload):
+        payload["phase0_models"]["logistic_regression_handcrafted"]["per_lead_features"].append(
+            "peak_to_peak"
+        )
+
+    path = _mutated_protocol(tmp_path, mutate)
+    with pytest.raises(ValueError, match="exactly 144 features"):
+        validate_open_ecg_protocol(path)
+
+
+def test_external_partition_cannot_be_changed_after_lock(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["external_partition"].update(
+            {"certification_fraction": 0.8, "recovery_pool_fraction": 0.2}
+        ),
+    )
+    with pytest.raises(ValueError, match="60% certification"):
+        validate_open_ecg_protocol(path)
+
+
+def test_external_partition_cannot_use_labels(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["external_partition"].update({"label_stratification": True}),
+    )
+    with pytest.raises(ValueError, match="must not use labels"):
+        validate_open_ecg_protocol(path)
+
+
+def test_calibration_fold_cannot_be_reused_for_model_selection(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["calibration"].update({"fit_source": "ptb_xl_fold_8_and_9"}),
+    )
+    with pytest.raises(ValueError, match="only use PTB-XL fold 9"):
         validate_open_ecg_protocol(path)
 
 
@@ -119,4 +172,13 @@ def test_primary_filtering_cannot_be_enabled_without_amendment(tmp_path: Path) -
         ),
     )
     with pytest.raises(ValueError, match="filtering must remain disabled"):
+        validate_open_ecg_protocol(path)
+
+
+def test_target_domain_retraining_cannot_be_removed_from_prohibitions(tmp_path: Path) -> None:
+    def mutate(payload):
+        payload["phase1_if_phase0_passes"]["prohibited"].remove("target_domain_model_retraining")
+
+    path = _mutated_protocol(tmp_path, mutate)
+    with pytest.raises(ValueError, match="prohibited target-domain operations"):
         validate_open_ecg_protocol(path)
