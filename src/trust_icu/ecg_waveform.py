@@ -146,9 +146,7 @@ def build_verified_ptbxl_assignments(
 def assignment_sha256(assignments: tuple[PtbxlAssignment, ...]) -> str:
     digest = hashlib.sha256()
     for item in sorted(assignments, key=lambda row: _numeric_record_id(row.challenge_record_id)):
-        digest.update(
-            f"{item.challenge_record_id},{item.ecg_id},{item.strat_fold}\n".encode("utf-8")
-        )
+        digest.update(f"{item.challenge_record_id},{item.ecg_id},{item.strat_fold}\n".encode())
     return digest.hexdigest()
 
 
