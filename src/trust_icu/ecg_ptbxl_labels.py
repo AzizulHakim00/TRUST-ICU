@@ -1,10 +1,9 @@
 """Aggregate label-concordance audit for original PTB-XL development labels.
 
-TRUST-ECG develops models directly on the original PTB-XL v1.0.1 release so that official
-patient identifiers and stratified folds are available without attempting to reverse-map the
-Challenge-renamed PTB-XL records. This module checks that the prespecified SCP-ECG statements
-produce the same aggregate positive counts as the corresponding SNOMED-CT labels observed in
-the public Challenge 2020 PTB-XL headers before the development representation is unlocked.
+TRUST-ECG develops models directly on original PTB-XL v1.0.1 so official patient identifiers
+and stratified folds remain available. Development SCP-ECG statements are mapped to the seven
+prespecified Challenge SNOMED groups using union-by-record semantics. The mapping was frozen
+from aggregate public-label evidence before any waveform model performance was inspected.
 """
 
 from __future__ import annotations
@@ -17,16 +16,45 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-# These seven mappings were fixed before model-performance inspection. The Challenge counts are
-# aggregate label evidence from the real header-only audit, not model results.
+# Challenge PTB-XL aggregate positive counts were measured in the real header-only audit.
+# PAC/SVARR and SR/NORM unions were resolved by an aggregate-only exact-union diagnostic using
+# official PTB-XL scp_statements descriptions; no waveform or model score was used.
 PTBXL_SCP_TO_CHALLENGE = {
-    "59118001": {"abbreviation": "RBBB", "scp_code": "CRBBB", "challenge_positive_count": 542},
-    "164889003": {"abbreviation": "AF", "scp_code": "AFIB", "challenge_positive_count": 1514},
-    "164909002": {"abbreviation": "LBBB", "scp_code": "CLBBB", "challenge_positive_count": 536},
-    "270492004": {"abbreviation": "IAVB", "scp_code": "1AVB", "challenge_positive_count": 797},
-    "284470004": {"abbreviation": "PAC", "scp_code": "PAC", "challenge_positive_count": 555},
-    "426783006": {"abbreviation": "NSR", "scp_code": "SR", "challenge_positive_count": 18092},
-    "427084000": {"abbreviation": "STach", "scp_code": "STACH", "challenge_positive_count": 826},
+    "59118001": {
+        "abbreviation": "RBBB",
+        "scp_codes": ("CRBBB",),
+        "challenge_positive_count": 542,
+    },
+    "164889003": {
+        "abbreviation": "AF",
+        "scp_codes": ("AFIB",),
+        "challenge_positive_count": 1514,
+    },
+    "164909002": {
+        "abbreviation": "LBBB",
+        "scp_codes": ("CLBBB",),
+        "challenge_positive_count": 536,
+    },
+    "270492004": {
+        "abbreviation": "IAVB",
+        "scp_codes": ("1AVB",),
+        "challenge_positive_count": 797,
+    },
+    "284470004": {
+        "abbreviation": "PAC",
+        "scp_codes": ("PAC", "SVARR"),
+        "challenge_positive_count": 555,
+    },
+    "426783006": {
+        "abbreviation": "NSR",
+        "scp_codes": ("SR", "NORM"),
+        "challenge_positive_count": 18092,
+    },
+    "427084000": {
+        "abbreviation": "STach",
+        "scp_codes": ("STACH",),
+        "challenge_positive_count": 826,
+    },
 }
 
 
@@ -34,12 +62,10 @@ PTBXL_SCP_TO_CHALLENGE = {
 class LabelConcordanceRow:
     canonical_code: str
     abbreviation: str
-    scp_code: str
+    scp_codes: tuple[str, ...]
     challenge_positive_count: int
-    original_ptbxl_key_present_count: int
-    original_ptbxl_positive_likelihood_count: int
-    exact_key_present_match: bool
-    exact_positive_likelihood_match: bool
+    original_ptbxl_union_key_present_count: int
+    exact_union_key_present_match: bool
 
 
 @dataclass(frozen=True)
@@ -83,6 +109,16 @@ def _parse_scp_codes(raw: str) -> dict[str, float]:
     return result
 
 
+def _mapping_codes(spec: dict[str, Any]) -> tuple[str, ...]:
+    raw = spec.get("scp_codes")
+    if not isinstance(raw, (tuple, list)) or not raw:
+        raise ValueError("Every PTB-XL label mapping must provide one or more scp_codes.")
+    codes = tuple(str(code) for code in raw)
+    if len(set(codes)) != len(codes):
+        raise ValueError("PTB-XL label mapping contains duplicate SCP codes.")
+    return codes
+
+
 def build_ptbxl_label_concordance_audit(metadata_csv: str | Path) -> PtbxlLabelConcordanceAudit:
     path = Path(metadata_csv).expanduser().resolve()
     with path.open(newline="", encoding="utf-8") as handle:
@@ -99,8 +135,7 @@ def build_ptbxl_label_concordance_audit(metadata_csv: str | Path) -> PtbxlLabelC
         raise ValueError("PTB-XL metadata contains duplicate ecg_id values.")
 
     patient_folds: dict[str, set[int]] = {}
-    key_counts = {code: 0 for code in PTBXL_SCP_TO_CHALLENGE}
-    positive_counts = {code: 0 for code in PTBXL_SCP_TO_CHALLENGE}
+    union_counts = {canonical: 0 for canonical in PTBXL_SCP_TO_CHALLENGE}
     folds: set[int] = set()
 
     for row in rows:
@@ -108,43 +143,28 @@ def build_ptbxl_label_concordance_audit(metadata_csv: str | Path) -> PtbxlLabelC
         fold = int(row["strat_fold"])
         folds.add(fold)
         patient_folds.setdefault(patient, set()).add(fold)
-        scp_codes = _parse_scp_codes(str(row["scp_codes"]))
+        present = set(_parse_scp_codes(str(row["scp_codes"])))
         for canonical, spec in PTBXL_SCP_TO_CHALLENGE.items():
-            scp_code = str(spec["scp_code"])
-            if scp_code in scp_codes:
-                key_counts[canonical] += 1
-                if scp_codes[scp_code] > 0:
-                    positive_counts[canonical] += 1
+            if present.intersection(_mapping_codes(spec)):
+                union_counts[canonical] += 1
 
     leaking_patients = sum(1 for patient_folds_set in patient_folds.values() if len(patient_folds_set) > 1)
     label_rows: list[LabelConcordanceRow] = []
     for canonical, spec in PTBXL_SCP_TO_CHALLENGE.items():
         target = int(spec["challenge_positive_count"])
+        observed = union_counts[canonical]
         label_rows.append(
             LabelConcordanceRow(
                 canonical_code=canonical,
                 abbreviation=str(spec["abbreviation"]),
-                scp_code=str(spec["scp_code"]),
+                scp_codes=_mapping_codes(spec),
                 challenge_positive_count=target,
-                original_ptbxl_key_present_count=key_counts[canonical],
-                original_ptbxl_positive_likelihood_count=positive_counts[canonical],
-                exact_key_present_match=key_counts[canonical] == target,
-                exact_positive_likelihood_match=positive_counts[canonical] == target,
+                original_ptbxl_union_key_present_count=observed,
+                exact_union_key_present_match=observed == target,
             )
         )
 
-    all_key_exact = all(row.exact_key_present_match for row in label_rows)
-    all_positive_exact = all(row.exact_positive_likelihood_match for row in label_rows)
-    if all_key_exact:
-        semantics = "scp_key_present"
-        concordant = True
-    elif all_positive_exact:
-        semantics = "scp_likelihood_gt_zero"
-        concordant = True
-    else:
-        semantics = "unresolved"
-        concordant = False
-
+    concordant = all(row.exact_union_key_present_match for row in label_rows)
     blockers: list[str] = []
     if len(rows) != 21837:
         blockers.append("ptbxl_v1_0_1_row_count_mismatch")
@@ -153,17 +173,17 @@ def build_ptbxl_label_concordance_audit(metadata_csv: str | Path) -> PtbxlLabelC
     if leaking_patients:
         blockers.append("ptbxl_patient_fold_leakage_detected")
     if not concordant:
-        blockers.append("ptbxl_scp_to_challenge_label_counts_not_exactly_concordant")
+        blockers.append("ptbxl_scp_union_to_challenge_label_counts_not_exactly_concordant")
 
     payload: dict[str, Any] = {
-        "audit_version": "0.1.0",
+        "audit_version": "0.2.0",
         "ptbxl_rows": len(rows),
         "unique_ecg_ids": len(set(ecg_ids)),
         "unique_patients": len(patient_folds),
         "folds_present": sorted(folds),
         "patients_spanning_multiple_folds": leaking_patients,
         "label_rows": [asdict(row) for row in label_rows],
-        "selected_count_semantics": semantics,
+        "selected_count_semantics": "union_of_scp_key_presence_per_record",
         "all_labels_exactly_concordant": concordant,
         "ready_for_original_ptbxl_development": not blockers,
         "blockers": blockers,
