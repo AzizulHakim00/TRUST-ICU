@@ -1,0 +1,40 @@
+name: PTB-XL Release Metadata Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - ".github/workflows/ptbxl-release-metadata-diagnostic.yml"
+      - "scripts/diagnose_ptbxl_release_repair.py"
+
+permissions:
+  contents: read
+
+jobs:
+  metadata-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install base runtime
+        run: pip install -e .
+      - name: Fetch official metadata releases
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output /tmp/ptbxl_v100.csv \
+            https://physionet.org/files/ptb-xl/1.0.0/ptbxl_database.csv
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output /tmp/ptbxl_v101.csv \
+            https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv
+      - name: Diagnose official release repair
+        run: |
+          python scripts/diagnose_ptbxl_release_repair.py \
+            --ptbxl-v100-metadata /tmp/ptbxl_v100.csv \
+            --ptbxl-v101-metadata /tmp/ptbxl_v101.csv \
+            --output /tmp/ptbxl_release_repair.json
+          cat /tmp/ptbxl_release_repair.json
