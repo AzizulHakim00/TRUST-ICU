@@ -24,9 +24,11 @@ def _mutated_protocol(tmp_path: Path, mutate) -> Path:
 def test_open_ecg_protocol_is_valid() -> None:
     report = validate_open_ecg_protocol(PROTOCOL)
     assert report["valid"] is True
-    assert report["version"] == "0.3.0"
-    assert report["development_source"] == "ptb_xl"
+    assert report["version"] == "0.4.0"
+    assert report["development_source"] == "original_ptb_xl_v1_0_1"
     assert report["development_records"] == 21837
+    assert report["development_label_semantics"] == "union_of_scp_key_presence_per_record"
+    assert report["challenge_ptbxl_model_input"] is False
     assert report["model_fit_folds"] == [1, 2, 3, 4, 5, 6, 7]
     assert report["optimization_validation_fold"] == 8
     assert report["calibration_fold"] == 9
@@ -59,6 +61,48 @@ def test_external_source_cannot_be_removed(tmp_path: Path) -> None:
 
     path = _mutated_protocol(tmp_path, mutate)
     with pytest.raises(ValueError, match="External source set"):
+        validate_open_ecg_protocol(path)
+
+
+def test_challenge_ptbxl_cannot_become_model_input(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["sources"]["development"]["ptb_xl"].update(
+            {"challenge_ptbxl_used_as_model_input": True}
+        ),
+    )
+    with pytest.raises(ValueError, match="must never be used as model input"):
+        validate_open_ecg_protocol(path)
+
+
+def test_label_concordance_evidence_hash_cannot_drift(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["prospective_amendment"]["original_ptbxl_label_concordance"].update(
+            {"real_audit_sha256": "0" * 64}
+        ),
+    )
+    with pytest.raises(ValueError, match="evidence hash cannot drift"):
+        validate_open_ecg_protocol(path)
+
+
+def test_frozen_label_union_cannot_drift(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["sources"]["development"]["ptb_xl"]["frozen_label_mapping"].update(
+            {"284470004": ["PAC"]}
+        ),
+    )
+    with pytest.raises(ValueError, match="mapping cannot drift"):
+        validate_open_ecg_protocol(path)
+
+
+def test_obsolete_crosswalk_gate_cannot_be_reenabled(tmp_path: Path) -> None:
+    path = _mutated_protocol(
+        tmp_path,
+        lambda payload: payload["phase0_go_no_go"].update({"require_ptbxl_crosswalk_audit": True}),
+    )
+    with pytest.raises(ValueError, match="crosswalk must remain disabled"):
         validate_open_ecg_protocol(path)
 
 
@@ -139,17 +183,6 @@ def test_label_budgets_cannot_drift(tmp_path: Path) -> None:
         ),
     )
     with pytest.raises(ValueError, match="label budgets must remain prespecified"):
-        validate_open_ecg_protocol(path)
-
-
-def test_crosswalk_requirement_cannot_be_disabled(tmp_path: Path) -> None:
-    path = _mutated_protocol(
-        tmp_path,
-        lambda payload: payload["sources"]["development"]["ptb_xl"][
-            "challenge_to_original_crosswalk"
-        ].update({"required": False}),
-    )
-    with pytest.raises(ValueError, match="Every Challenge/PTB-XL pair"):
         validate_open_ecg_protocol(path)
 
 
