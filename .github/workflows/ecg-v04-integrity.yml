@@ -75,11 +75,12 @@ jobs:
       - name: Validate source-aware model index plan
         run: python scripts/build_open_ecg_model_index.py --dry-run
 
-      - name: Validate source-aware Phase 0 plans
+      - name: Validate source-aware Phase 0 and conditional Phase 1 plans
         run: |
           python scripts/run_open_ecg_phase0.py --model logistic --dry-run
           python scripts/run_open_ecg_phase0.py --model resnet --dry-run
           python scripts/validate_open_ecg_resnet_activation.py --dry-run
+          python scripts/run_open_ecg_phase1.py --dry-run
 
       - name: Run ECG-focused tests
         run: pytest tests/test_ecg_*.py -q
