@@ -7,14 +7,12 @@ on:
     paths:
       - ".github/workflows/open-ecg-real-header-audit.yml"
       - "scripts/fetch_open_ecg_headers.py"
-      - "scripts/diagnose_ptbxl_crosswalk.py"
-      - "scripts/diagnose_ptbxl_release_repair.py"
       - "scripts/prepare_open_ecg_data.py"
+      - "scripts/audit_original_ptbxl_labels.py"
       - "scripts/lock_open_ecg_labels.py"
-      - "src/trust_icu/__init__.py"
       - "src/trust_icu/ecg_data.py"
-      - "src/trust_icu/ecg_crosswalk.py"
       - "src/trust_icu/ecg_manifest.py"
+      - "src/trust_icu/ecg_ptbxl_labels.py"
       - "schemas/open_ecg_protocol.yaml"
       - "schemas/challenge2020_scored_classes.csv"
 
@@ -42,7 +40,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Fetch real public metadata and headers only
+      - name: Fetch Challenge headers and PTB-XL metadata only
         run: |
           set -euo pipefail
           rm -rf /tmp/trust_ecg_public
@@ -50,96 +48,71 @@ jobs:
             --output-root /tmp/trust_ecg_public \
             --workers 8 \
             --recovery-rounds 4 \
+            --skip-original-ptbxl-headers \
             --summary /tmp/trust_ecg_public/header_download_summary.json
-          curl --fail --location --retry 5 --retry-all-errors \
-            --output /tmp/trust_ecg_public/ptbxl_database_v100.csv \
-            https://physionet.org/files/ptb-xl/1.0.0/ptbxl_database.csv
-          echo "--- ephemeral download footprint ---"
-          du -sh /tmp/trust_ecg_public
           echo "--- aggregate download summary ---"
           cat /tmp/trust_ecg_public/header_download_summary.json
 
-      - name: Run real header audit and PTB-XL crosswalk
+      - name: Build real Challenge label-support audit
         run: |
-          set +e
+          set -euo pipefail
           python scripts/prepare_open_ecg_data.py \
             --header-root /tmp/trust_ecg_public/challenge \
             --ptbxl-metadata /tmp/trust_ecg_public/ptbxl_database.csv \
-            --ptbxl-original-root /tmp/trust_ecg_public/ptbxl_original \
             --output /tmp/trust_ecg_public/open_ecg_header_audit.json \
-            --require-ready \
-            > /tmp/trust_ecg_public/header_audit_command.log 2>&1
-          status=$?
-          cat /tmp/trust_ecg_public/header_audit_command.log
-          if [ -f /tmp/trust_ecg_public/open_ecg_header_audit.json ]; then
-            python - <<'PY'
-          import json
-          from pathlib import Path
+            --require-ready
 
-          path = Path('/tmp/trust_ecg_public/open_ecg_header_audit.json')
-          audit = json.loads(path.read_text())
-          safe = {
-              'protocol_version': audit['protocol_version'],
-              'source_record_counts': audit['source_record_counts'],
-              'source_count_matches_expected': audit['source_count_matches_expected'],
-              'source_sampling_rates_hz': audit['source_sampling_rates_hz'],
-              'source_duration_seconds': audit['source_duration_seconds'],
-              'records_with_non_12_lead_contract': audit['records_with_non_12_lead_contract'],
-              'records_missing_dx': audit['records_missing_dx'],
-              'ptbxl_fold_integrity': audit['ptbxl_fold_integrity'],
-              'ptbxl_crosswalk': audit['ptbxl_crosswalk'],
-              'eligible_labels': audit['eligible_labels'],
-              'ready_for_waveform_stage': audit['ready_for_waveform_stage'],
-              'blockers': audit['blockers'],
-              'manifest_sha256': audit['manifest_sha256'],
-              'label_decisions': audit['labels'],
-          }
-          print('--- REAL AGGREGATE HEADER AUDIT ---')
-          print(json.dumps(safe, indent=2, sort_keys=True))
-          PY
-          fi
-          exit "$status"
-
-      - name: Diagnose PTB-XL crosswalk components
-        if: always()
+      - name: Build real original PTB-XL label-concordance audit
         run: |
           set -euo pipefail
-          if [ -d /tmp/trust_ecg_public/challenge/ptb-xl ] && \
-             [ -f /tmp/trust_ecg_public/ptbxl_database.csv ] && \
-             [ -d /tmp/trust_ecg_public/ptbxl_original ]; then
-            python scripts/diagnose_ptbxl_crosswalk.py \
-              --challenge-root /tmp/trust_ecg_public/challenge \
-              --ptbxl-metadata /tmp/trust_ecg_public/ptbxl_database.csv \
-              --ptbxl-original-root /tmp/trust_ecg_public/ptbxl_original \
-              --output /tmp/trust_ecg_public/ptbxl_crosswalk_diagnostic.json
-          else
-            echo "Crosswalk diagnostic inputs unavailable; skipping diagnostic."
-          fi
+          python scripts/audit_original_ptbxl_labels.py \
+            --ptbxl-metadata /tmp/trust_ecg_public/ptbxl_database.csv \
+            --output /tmp/trust_ecg_public/ptbxl_label_concordance_audit.json \
+            --require-ready
 
-      - name: Diagnose PTB-XL v1.0.0 to v1.0.1 ID repair
-        if: always()
-        run: |
-          set -euo pipefail
-          if [ -f /tmp/trust_ecg_public/ptbxl_database_v100.csv ] && \
-             [ -f /tmp/trust_ecg_public/ptbxl_database.csv ] && \
-             [ -d /tmp/trust_ecg_public/challenge/ptb-xl ]; then
-            python scripts/diagnose_ptbxl_release_repair.py \
-              --ptbxl-v100-metadata /tmp/trust_ecg_public/ptbxl_database_v100.csv \
-              --ptbxl-v101-metadata /tmp/trust_ecg_public/ptbxl_database.csv \
-              --challenge-root /tmp/trust_ecg_public/challenge \
-              --output /tmp/trust_ecg_public/ptbxl_release_repair_diagnostic.json
-          else
-            echo "Release-repair diagnostic inputs unavailable; skipping diagnostic."
-          fi
-
-      - name: Lock real common label manifest
+      - name: Lock real two-source seven-label manifest
         run: |
           set -euo pipefail
           python scripts/lock_open_ecg_labels.py \
             --header-audit /tmp/trust_ecg_public/open_ecg_header_audit.json \
+            --ptbxl-label-concordance /tmp/trust_ecg_public/ptbxl_label_concordance_audit.json \
             --output /tmp/trust_ecg_public/open_ecg_label_manifest.json
-          echo "--- REAL AGGREGATE LABEL MANIFEST ---"
-          cat /tmp/trust_ecg_public/open_ecg_label_manifest.json
+
+      - name: Verify aggregate-only evidence chain
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path('/tmp/trust_ecg_public')
+          download = json.loads((root / 'header_download_summary.json').read_text())
+          header = json.loads((root / 'open_ecg_header_audit.json').read_text())
+          concordance = json.loads((root / 'ptbxl_label_concordance_audit.json').read_text())
+          manifest = json.loads((root / 'open_ecg_label_manifest.json').read_text())
+          assert download['waveform_files_downloaded'] == 0
+          assert download['ptbxl_original_headers_requested'] is False
+          assert download['ptbxl_original_header_files'] == 0
+          assert header['ready_for_waveform_stage'] is True
+          assert header['ptbxl_crosswalk']['required'] is False
+          assert concordance['ready_for_original_ptbxl_development'] is True
+          assert concordance['all_labels_exactly_concordant'] is True
+          assert manifest['challenge_ptbxl_model_input'] is False
+          assert manifest['label_count'] == 7
+          assert manifest['source_header_audit_sha256'] == header['manifest_sha256']
+          assert manifest['ptbxl_label_concordance_audit_sha256'] == concordance['audit_sha256']
+          print(json.dumps({
+              'challenge_header_counts': download['challenge_downloaded_counts'],
+              'waveform_files_downloaded': download['waveform_files_downloaded'],
+              'original_ptbxl_headers_downloaded_for_crosswalk': download['ptbxl_original_header_files'],
+              'header_audit_sha256': header['manifest_sha256'],
+              'ptbxl_label_concordance_audit_sha256': concordance['audit_sha256'],
+              'label_count': manifest['label_count'],
+              'canonical_codes': [item['canonical_code'] for item in manifest['labels']],
+              'label_manifest_sha256': manifest['manifest_sha256'],
+              'challenge_ptbxl_model_input': manifest['challenge_ptbxl_model_input'],
+          }, indent=2, sort_keys=True))
+          PY
 
       - name: Record aggregate evidence in job summary
         if: always()
@@ -149,56 +122,39 @@ jobs:
           import os
           from pathlib import Path
 
+          root = Path('/tmp/trust_ecg_public')
           summary = Path(os.environ['GITHUB_STEP_SUMMARY'])
-          lines = ['# TRUST-ECG real header-only audit', '']
-          download = Path('/tmp/trust_ecg_public/header_download_summary.json')
-          if download.is_file():
-              payload = json.loads(download.read_text())
+          lines = ['# TRUST-ECG v0.4 real two-source label lock', '']
+          download_path = root / 'header_download_summary.json'
+          if download_path.is_file():
+              payload = json.loads(download_path.read_text())
               lines += [
-                  f"- Challenge v{payload['challenge_version']}",
-                  f"- PTB-XL v{payload['ptbxl_version']}",
-                  f"- Waveform files downloaded: {payload['waveform_files_downloaded']}",
-                  f"- Challenge header counts: `{payload['challenge_downloaded_counts']}`",
-                  f"- Challenge failures by retry round: `{payload['challenge_failed_counts_by_round']}`",
-                  f"- PTB-XL original failures by retry round: `{payload['ptbxl_original_failed_counts_by_round']}`",
+                  f"- Challenge v{payload['challenge_version']} header counts: `{payload['challenge_downloaded_counts']}`",
+                  f"- Waveform files downloaded: **{payload['waveform_files_downloaded']}**",
+                  f"- Original PTB-XL headers fetched for reverse crosswalk: **{payload['ptbxl_original_header_files']}**",
               ]
-          audit = Path('/tmp/trust_ecg_public/open_ecg_header_audit.json')
-          if audit.is_file():
-              payload = json.loads(audit.read_text())
+          header_path = root / 'open_ecg_header_audit.json'
+          if header_path.is_file():
+              payload = json.loads(header_path.read_text())
               lines += [
-                  f"- Ready for waveform stage: **{payload['ready_for_waveform_stage']}**",
-                  f"- PTB-XL crosswalk valid: **{payload['ptbxl_crosswalk'].get('valid', False)}**",
-                  f"- PTB-XL crosswalk method: `{payload['ptbxl_crosswalk'].get('method')}`",
-                  f"- PTB-XL verified pairs: **{payload['ptbxl_crosswalk'].get('verified_pairs', 0)}**",
+                  f"- Challenge label-support ready: **{payload['ready_for_waveform_stage']}**",
                   f"- Eligible labels: `{payload['eligible_labels']}`",
                   f"- Header audit SHA-256: `{payload['manifest_sha256']}`",
-                  f"- Blockers: `{payload['blockers']}`",
               ]
-          diagnostic = Path('/tmp/trust_ecg_public/ptbxl_crosswalk_diagnostic.json')
-          if diagnostic.is_file():
-              payload = json.loads(diagnostic.read_text())
+          concordance_path = root / 'ptbxl_label_concordance_audit.json'
+          if concordance_path.is_file():
+              payload = json.loads(concordance_path.read_text())
               lines += [
-                  f"- Rank diagnostic checksum matches: **{payload['checksum_matches']}**",
-                  f"- Rank diagnostic checksum mismatches: **{payload['checksum_mismatches']}**",
-                  f"- Challenge lead orders: `{payload['challenge_lead_orders']}`",
-                  f"- Original lead orders: `{payload['original_lead_orders']}`",
+                  f"- Original PTB-XL label concordance ready: **{payload['ready_for_original_ptbxl_development']}**",
+                  f"- All seven labels exactly concordant: **{payload['all_labels_exactly_concordant']}**",
+                  f"- PTB-XL concordance SHA-256: `{payload['audit_sha256']}`",
               ]
-          release = Path('/tmp/trust_ecg_public/ptbxl_release_repair_diagnostic.json')
-          if release.is_file():
-              payload = json.loads(release.read_text())
+          manifest_path = root / 'open_ecg_label_manifest.json'
+          if manifest_path.is_file():
+              payload = json.loads(manifest_path.read_text())
               lines += [
-                  f"- v1.0.0 rows: **{payload['v100_rows']}**",
-                  f"- v1.0.1 rows: **{payload['v101_rows']}**",
-                  f"- v1.0.0 filename_hr changes by same ecg_id: **{payload['filename_hr_changed_same_ecg_id']}**",
-                  f"- v1.0.0 filename numeric==ecg_id: **{payload['v100_filename_hr_numeric_equals_ecg_id']}**",
-                  f"- v1.0.1 filename numeric==ecg_id: **{payload['v101_filename_hr_numeric_equals_ecg_id']}**",
-                  f"- Candidate demographic agreement: `{payload.get('candidate_demographic_agreement', {})}`",
-              ]
-          manifest = Path('/tmp/trust_ecg_public/open_ecg_label_manifest.json')
-          if manifest.is_file():
-              payload = json.loads(manifest.read_text())
-              lines += [
-                  f"- Locked label count: **{len(payload['labels'])}**",
+                  f"- Locked label count: **{payload['label_count']}**",
+                  f"- Challenge PTB-XL used as model input: **{payload['challenge_ptbxl_model_input']}**",
                   f"- Label manifest SHA-256: `{payload['manifest_sha256']}`",
               ]
           summary.write_text('\n'.join(lines) + '\n')
