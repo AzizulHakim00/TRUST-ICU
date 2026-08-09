@@ -111,6 +111,23 @@ jobs:
           fi
           echo "No protected ECG implementation drift detected."
 
+      - name: Guard conditional Phase 1 implementation against post-lock drift
+        env:
+          PHASE1_LOCK_SHA: 4b5189d693ddd9ede6715cc3210b9157972144e2
+        run: |
+          set -euo pipefail
+          git cat-file -e "${PHASE1_LOCK_SHA}^{commit}"
+          protected=(
+            src/trust_icu/ecg_phase1.py
+            scripts/run_open_ecg_phase1.py
+          )
+          if ! git diff --quiet "$PHASE1_LOCK_SHA" "$GITHUB_SHA" -- "${protected[@]}"; then
+            echo "Conditional Phase 1 implementation drifted after its pre-ResNet lock." >&2
+            git diff --name-only "$PHASE1_LOCK_SHA" "$GITHUB_SHA" -- "${protected[@]}" >&2
+            exit 1
+          fi
+          echo "No post-lock conditional Phase 1 implementation drift detected."
+
       - name: Install fixed-ResNet runtime
         run: |
           python -m pip install --upgrade pip
@@ -249,7 +266,24 @@ jobs:
             --device cpu \
             --num-workers 2
 
-      - name: Emit aggregate-only primary evidence
+      - name: Run conditional Phase 1 probability recovery if activated
+        run: |
+          set -euo pipefail
+          python scripts/run_open_ecg_phase1.py \
+            --phase0-report /tmp/trust_ecg_results/open_ecg_phase0_resnet_report.json \
+            --plan-output /tmp/trust_ecg_results/open_ecg_phase1_plan.json \
+            --primary-data-root /tmp/trust_ecg_primary \
+            --model-index /tmp/trust_ecg_work/model_index/open_ecg_model_index.csv \
+            --model-index-audit /tmp/trust_ecg_work/model_index/open_ecg_model_index_audit.json \
+            --label-manifest /tmp/trust_ecg_evidence/open_ecg_label_manifest.json \
+            --normalization-stats /tmp/trust_ecg_work/waveform/open_ecg_normalization_stats.json \
+            --checkpoint /tmp/trust_ecg_results/open_ecg_resnet_checkpoint.pt \
+            --global-calibration /tmp/trust_ecg_results/open_ecg_resnet_calibration.json \
+            --output /tmp/trust_ecg_results/open_ecg_phase1_recovery_report.json \
+            --device cpu \
+            --num-workers 2
+
+      - name: Emit aggregate-only primary and conditional-recovery evidence
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -276,6 +310,48 @@ jobs:
               "best_fold8_macro_pr_auc": history["best_fold8_macro_pr_auc"],
               "epochs_completed": history["epochs_completed"],
           }
+          phase1_plan_path = results / "open_ecg_phase1_plan.json"
+          if phase1_plan_path.is_file():
+              plan = json.loads(phase1_plan_path.read_text())
+              safe["conditional_phase1_plan"] = {
+                  "status": plan["status"],
+                  "activated": plan["activated"],
+                  "candidate_domains": plan["candidate_domains"],
+                  "candidate_pairs": plan["candidate_pairs"],
+                  "target_label_budgets": plan["target_label_budgets"],
+                  "repeats": plan["repeats"],
+                  "sampling_stratified": plan["sampling_stratified"],
+                  "phase0_report_sha256": plan["phase0_report_sha256"],
+                  "phase0_model_sha256": plan["phase0_model_sha256"],
+              }
+          phase1_report_path = results / "open_ecg_phase1_recovery_report.json"
+          if phase1_report_path.is_file():
+              phase1 = json.loads(phase1_report_path.read_text())
+              recovery = {}
+              for pair_key, pair in phase1["pair_results"].items():
+                  recovery[pair_key] = {}
+                  for budget, budget_payload in pair["budgets"].items():
+                      recovery[pair_key][budget] = {
+                          method: {
+                              "estimable_repeats": method_payload["estimable_repeats"],
+                              "nonestimable_repeats": method_payload["nonestimable_repeats"],
+                              "recovery_envelope_met_rate_among_estimable": method_payload[
+                                  "recovery_envelope_met_rate_among_estimable"
+                              ],
+                          }
+                          for method, method_payload in budget_payload["methods"].items()
+                      }
+              safe["conditional_phase1_recovery"] = {
+                  "candidate_pair_count": phase1["candidate_pair_count"],
+                  "candidate_domain_count": phase1["candidate_domain_count"],
+                  "recovery_pool_only": phase1["recovery_pool_only"],
+                  "target_domain_model_retraining": phase1["target_domain_model_retraining"],
+                  "target_domain_feature_selection": phase1["target_domain_feature_selection"],
+                  "target_domain_normalization_refit": phase1["target_domain_normalization_refit"],
+                  "posthoc_threshold_search": phase1["posthoc_threshold_search"],
+                  "report_sha256": phase1["report_sha256"],
+                  "recovery_envelope_summary": recovery,
+              }
           print("--- TRUST_ECG_REAL_RESNET_AGGREGATE_EVIDENCE_BEGIN ---")
           print(json.dumps(safe, indent=2, sort_keys=True))
           print("--- TRUST_ECG_REAL_RESNET_AGGREGATE_EVIDENCE_END ---")
@@ -309,10 +385,26 @@ jobs:
                   f"- Best fold-8 macro PR-AUC: **{payload['best_fold8_macro_pr_auc']:.6f}**",
                   f"- Epochs completed: **{payload['epochs_completed']}**",
               ]
+          phase1_plan = Path("/tmp/trust_ecg_results/open_ecg_phase1_plan.json")
+          if phase1_plan.is_file():
+              payload = json.loads(phase1_plan.read_text())
+              lines += [
+                  f"- Conditional Phase 1 activated: **{payload['activated']}**",
+                  f"- Conditional Phase 1 status: `{payload['status']}`",
+                  f"- Candidate external domains: **{len(payload['candidate_domains'])}**",
+                  f"- Candidate label-domain pairs: **{len(payload['candidate_pairs'])}**",
+              ]
+          phase1_report = Path("/tmp/trust_ecg_results/open_ecg_phase1_recovery_report.json")
+          if phase1_report.is_file():
+              payload = json.loads(phase1_report.read_text())
+              lines += [
+                  f"- Phase 1 aggregate report SHA-256: `{payload['report_sha256']}`",
+                  f"- Phase 1 recovery-pool-only execution: **{payload['recovery_pool_only']}**",
+              ]
           lines += [
               "",
               "No waveform, checkpoint, record-level index, calibration file, prediction, "
-              "or patient-level artifact is uploaded.",
+              "sampled record identifier, or patient-level artifact is uploaded.",
           ]
           summary.write_text("\n".join(lines) + "\n")
           PY
