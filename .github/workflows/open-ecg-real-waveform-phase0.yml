@@ -1,0 +1,200 @@
+name: Real Open ECG Waveform Phase 0
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - "triggers/run-open-ecg-waveform-phase0.txt"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trust-ecg-real-waveform-phase0-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-waveform-phase0:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install v0.4 waveform runtime
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ecg-waveform]"
+          df -h /
+
+      - name: Rebuild real aggregate label evidence
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/trust_ecg_evidence /tmp/trust_ecg_primary /tmp/trust_ecg_work /tmp/trust_ecg_results
+          mkdir -p /tmp/trust_ecg_evidence
+          curl --fail --location --retry 8 --retry-all-errors --retry-delay 2 \
+            --output /tmp/trust_ecg_evidence/ptbxl_database.csv \
+            https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv
+          test -s /tmp/trust_ecg_evidence/ptbxl_database.csv
+          python scripts/fetch_open_ecg_headers.py \
+            --output-root /tmp/trust_ecg_evidence \
+            --workers 8 \
+            --recovery-rounds 4 \
+            --skip-original-ptbxl-headers \
+            --summary /tmp/trust_ecg_evidence/header_download_summary.json
+          python scripts/prepare_open_ecg_data.py \
+            --header-root /tmp/trust_ecg_evidence/challenge \
+            --ptbxl-metadata /tmp/trust_ecg_evidence/ptbxl_database.csv \
+            --output /tmp/trust_ecg_evidence/open_ecg_header_audit.json \
+            --require-ready
+          python scripts/audit_original_ptbxl_labels.py \
+            --ptbxl-metadata /tmp/trust_ecg_evidence/ptbxl_database.csv \
+            --output /tmp/trust_ecg_evidence/ptbxl_label_concordance_audit.json \
+            --require-ready
+          python scripts/lock_open_ecg_labels.py \
+            --header-audit /tmp/trust_ecg_evidence/open_ecg_header_audit.json \
+            --ptbxl-label-concordance /tmp/trust_ecg_evidence/ptbxl_label_concordance_audit.json \
+            --output /tmp/trust_ecg_evidence/open_ecg_label_manifest.json
+
+      - name: Seed primary root with already-verified external headers
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/trust_ecg_primary/ptb-xl
+          cp /tmp/trust_ecg_evidence/ptbxl_database.csv /tmp/trust_ecg_primary/ptb-xl/ptbxl_database.csv
+          for source in georgia cpsc_2018 cpsc_2018_extra; do
+            cp -a "/tmp/trust_ecg_evidence/challenge/${source}" "/tmp/trust_ecg_primary/${source}"
+          done
+
+      - name: Fetch exact v0.4 primary waveform corpora
+        run: |
+          set -euo pipefail
+          python scripts/fetch_open_ecg_primary_waveforms_v04.py \
+            --output-root /tmp/trust_ecg_primary \
+            --workers 4 \
+            --recovery-rounds 4 \
+            --summary /tmp/trust_ecg_primary/waveform_download_summary.json
+          cat /tmp/trust_ecg_primary/waveform_download_summary.json
+          df -h /
+          du -sh /tmp/trust_ecg_primary
+
+      - name: Run real waveform integrity and normalization audit
+        run: |
+          set -euo pipefail
+          python scripts/prepare_open_ecg_waveforms.py \
+            --primary-data-root /tmp/trust_ecg_primary \
+            --ptbxl-metadata /tmp/trust_ecg_primary/ptb-xl/ptbxl_database.csv \
+            --header-audit /tmp/trust_ecg_evidence/open_ecg_header_audit.json \
+            --label-manifest /tmp/trust_ecg_evidence/open_ecg_label_manifest.json \
+            --output-root /tmp/trust_ecg_work/waveform \
+            --require-ready
+
+      - name: Build verified v0.4 model index
+        run: |
+          set -euo pipefail
+          python scripts/build_open_ecg_model_index.py \
+            --primary-data-root /tmp/trust_ecg_primary \
+            --ptbxl-metadata /tmp/trust_ecg_primary/ptb-xl/ptbxl_database.csv \
+            --waveform-audit /tmp/trust_ecg_work/waveform/open_ecg_waveform_audit.json \
+            --label-manifest /tmp/trust_ecg_evidence/open_ecg_label_manifest.json \
+            --ptbxl-assignment /tmp/trust_ecg_work/waveform/ptbxl_verified_assignment.csv \
+            --output-root /tmp/trust_ecg_work/model_index
+
+      - name: Run real Logistic reference Phase 0
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/trust_ecg_results
+          python scripts/run_open_ecg_phase0.py \
+            --model logistic \
+            --primary-data-root /tmp/trust_ecg_primary \
+            --model-index /tmp/trust_ecg_work/model_index/open_ecg_model_index.csv \
+            --model-index-audit /tmp/trust_ecg_work/model_index/open_ecg_model_index_audit.json \
+            --label-manifest /tmp/trust_ecg_evidence/open_ecg_label_manifest.json \
+            --output-root /tmp/trust_ecg_results
+
+      - name: Emit aggregate-only real evidence
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          evidence = Path('/tmp/trust_ecg_evidence')
+          work = Path('/tmp/trust_ecg_work')
+          results = Path('/tmp/trust_ecg_results')
+          header = json.loads((evidence / 'open_ecg_header_audit.json').read_text())
+          concordance = json.loads((evidence / 'ptbxl_label_concordance_audit.json').read_text())
+          manifest = json.loads((evidence / 'open_ecg_label_manifest.json').read_text())
+          waveform = json.loads((work / 'waveform/open_ecg_waveform_audit.json').read_text())
+          index = json.loads((work / 'model_index/open_ecg_model_index_audit.json').read_text())
+          report = json.loads((results / 'open_ecg_phase0_logistic_report.json').read_text())
+          safe = {
+              'protocol_version': '0.4.0',
+              'challenge_ptbxl_model_input': False,
+              'header_audit_sha256': header['manifest_sha256'],
+              'ptbxl_label_concordance_audit_sha256': concordance['audit_sha256'],
+              'label_manifest_sha256': manifest['manifest_sha256'],
+              'waveform_audit_sha256': waveform['audit_sha256'],
+              'normalization_stats_sha256': waveform['normalization_stats_sha256'],
+              'ptbxl_assignment_sha256': waveform['ptbxl_assignment_sha256'],
+              'model_index_sha256': index['index_sha256'],
+              'model_index_audit_sha256': index['audit_sha256'],
+              'source_record_counts': waveform['source_record_counts'],
+              'source_waveform_format': waveform['source_waveform_format'],
+              'label_codes': index['label_codes'],
+              'logistic_reference_report': report,
+          }
+          print('--- TRUST_ECG_REAL_AGGREGATE_EVIDENCE_BEGIN ---')
+          print(json.dumps(safe, indent=2, sort_keys=True))
+          print('--- TRUST_ECG_REAL_AGGREGATE_EVIDENCE_END ---')
+          PY
+
+      - name: Record aggregate-only job summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary = Path(os.environ['GITHUB_STEP_SUMMARY'])
+          lines = ['# TRUST-ECG v0.4 real waveform Phase 0', '']
+          root = Path('/tmp/trust_ecg_primary')
+          download = root / 'waveform_download_summary.json'
+          if download.is_file():
+              payload = json.loads(download.read_text())
+              lines += [
+                  f"- Development source: `{payload['development_source']}`",
+                  f"- Challenge PTB-XL model input: **{payload['challenge_ptbxl_model_input']}**",
+                  f"- Downloaded/reused files: **{payload['completed_files']}**",
+                  f"- Primary corpus bytes: **{payload['downloaded_or_reused_bytes']}**",
+              ]
+          waveform = Path('/tmp/trust_ecg_work/waveform/open_ecg_waveform_audit.json')
+          if waveform.is_file():
+              payload = json.loads(waveform.read_text())
+              lines += [
+                  f"- Waveform audit ready: **{payload['ready_for_model_stage']}**",
+                  f"- Waveform audit SHA-256: `{payload['audit_sha256']}`",
+              ]
+          index = Path('/tmp/trust_ecg_work/model_index/open_ecg_model_index_audit.json')
+          if index.is_file():
+              payload = json.loads(index.read_text())
+              lines += [
+                  f"- Model index ready: **{payload['ready_for_baseline_execution']}**",
+                  f"- Model index SHA-256: `{payload['index_sha256']}`",
+              ]
+          result = Path('/tmp/trust_ecg_results/open_ecg_phase0_logistic_report.json')
+          if result.is_file():
+              payload = json.loads(result.read_text())
+              lines += [
+                  f"- Logistic reference report SHA-256: `{payload['report_sha256']}`",
+                  f"- Logistic primary-gate eligible: **{payload['primary_gate_eligible']}**",
+                  f"- Recovery pool used in Phase 0: **{payload['external_recovery_pool_used']}**",
+              ]
+          lines += ['', 'No patient/record-level artifact is uploaded or persisted by this workflow.']
+          summary.write_text('\n'.join(lines) + '\n')
+          PY
