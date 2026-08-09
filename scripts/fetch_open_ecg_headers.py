@@ -9,17 +9,17 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import http.client
 import json
 import os
 import re
+import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from collections import Counter
+from collections.abc import Iterable
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Iterable
 
 CHALLENGE_BASE = "https://physionet.org/files/challenge-2020/1.0.2/training"
 PTBXL_METADATA_URL = "https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv"
@@ -30,9 +30,10 @@ EXPECTED_SOURCES = {
     "cpsc_2018": 6877,
     "cpsc_2018_extra": 3453,
 }
-_USER_AGENT = "TRUST-ECG-header-audit/0.1 (+https://github.com/AzizulHakim00/TRUST-ICU)"
+_USER_AGENT = "TRUST-ECG-header-audit/0.2 (+https://github.com/AzizulHakim00/TRUST-ICU)"
 _GROUP_RE = re.compile(r"^g\d+/$")
 _PTB_DIR_RE = re.compile(r"^\d{5}/$")
+_THREAD_LOCAL = threading.local()
 
 
 class _HrefParser(HTMLParser):
@@ -48,15 +49,44 @@ class _HrefParser(HTMLParser):
                 self.hrefs.append(value)
 
 
+def _connection(*, timeout: float) -> http.client.HTTPSConnection:
+    connection = getattr(_THREAD_LOCAL, "physionet_connection", None)
+    if connection is None:
+        connection = http.client.HTTPSConnection("physionet.org", timeout=timeout)
+        _THREAD_LOCAL.physionet_connection = connection
+    return connection
+
+
+def _drop_connection() -> None:
+    connection = getattr(_THREAD_LOCAL, "physionet_connection", None)
+    if connection is not None:
+        try:
+            connection.close()
+        finally:
+            _THREAD_LOCAL.physionet_connection = None
+
+
 def _read_url(url: str, *, attempts: int = 5, timeout: float = 45.0) -> bytes:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "physionet.org" or parsed.username or parsed.password:
+        raise ValueError(f"TRUST-ECG header fetcher only permits https://physionet.org URLs: {url!r}")
+    target = parsed.path or "/"
+    if parsed.query:
+        target += "?" + parsed.query
+
     last_error: Exception | None = None
     for attempt in range(attempts):
         try:
-            request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                return response.read()
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            connection = _connection(timeout=timeout)
+            connection.request("GET", target, headers={"User-Agent": _USER_AGENT, "Accept": "*/*"})
+            response = connection.getresponse()
+            payload = response.read()
+            if response.status != 200:
+                raise RuntimeError(f"PhysioNet returned HTTP {response.status} for {url!r}")
+            return payload
+        except (http.client.HTTPException, OSError, TimeoutError, RuntimeError) as exc:
             last_error = exc
+            _drop_connection()
             if attempt + 1 == attempts:
                 break
             time.sleep(min(8.0, 0.75 * (2**attempt)))
@@ -118,7 +148,7 @@ def _download_one(job: tuple[str, Path]) -> tuple[str, int]:
     if not payload:
         raise RuntimeError(f"Refusing to write empty download from {url}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + f".partial.{os.getpid()}")
+    temporary = destination.with_name(destination.name + f".partial.{os.getpid()}.{threading.get_ident()}")
     temporary.write_bytes(payload)
     temporary.replace(destination)
     return str(destination), len(payload)
@@ -210,6 +240,7 @@ def main() -> int:
                     "sources": EXPECTED_SOURCES,
                     "downloads_waveforms": False,
                     "filename_discovery": "live_physionet_directory_listings",
+                    "transport": "bounded_parallel_https_with_per_worker_connection_reuse",
                     "workers": args.workers,
                 },
                 indent=2,
@@ -242,6 +273,7 @@ def main() -> int:
         "challenge_version": "1.0.2",
         "ptbxl_version": "1.0.1",
         "filename_discovery": "live_physionet_directory_listings",
+        "transport": "bounded_parallel_https_with_per_worker_connection_reuse",
         "waveform_files_downloaded": 0,
         "challenge_discovered_counts": discovered,
         "challenge_downloaded_counts": dict(observed_challenge),
