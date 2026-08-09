@@ -14,8 +14,6 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from trust_icu import ecg_phase0 as _legacy
 from trust_icu.ecg_index import EcgIndexRow, load_and_verify_index_audit, model_index_sha256
 from trust_icu.ecg_signal import (
