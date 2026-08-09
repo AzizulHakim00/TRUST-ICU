@@ -44,7 +44,8 @@ jobs:
           rm -rf /tmp/trust_ecg_public
           python scripts/fetch_open_ecg_headers.py \
             --output-root /tmp/trust_ecg_public \
-            --workers 16 \
+            --workers 8 \
+            --recovery-rounds 4 \
             --summary /tmp/trust_ecg_public/header_download_summary.json
           echo "--- ephemeral download footprint ---"
           du -sh /tmp/trust_ecg_public
@@ -119,6 +120,8 @@ jobs:
                   f"- PTB-XL v{payload['ptbxl_version']}",
                   f"- Waveform files downloaded: {payload['waveform_files_downloaded']}",
                   f"- Challenge header counts: `{payload['challenge_downloaded_counts']}`",
+                  f"- Challenge failures by retry round: `{payload['challenge_failed_counts_by_round']}`",
+                  f"- PTB-XL original failures by retry round: `{payload['ptbxl_original_failed_counts_by_round']}`",
               ]
           audit = Path('/tmp/trust_ecg_public/open_ecg_header_audit.json')
           if audit.is_file():
