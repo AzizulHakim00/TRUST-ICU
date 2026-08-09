@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lock the TRUST-ECG common label set from a verified aggregate header audit."""
+"""Lock TRUST-ECG labels from Challenge support and original PTB-XL concordance evidence."""
 
 from __future__ import annotations
 
@@ -16,7 +16,11 @@ MAPPING = ROOT / "schemas/challenge2020_scored_classes.csv"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--header-audit", help="Verified open_ecg_header_audit.json.")
+    parser.add_argument("--header-audit", help="Verified Challenge label-support audit JSON.")
+    parser.add_argument(
+        "--ptbxl-label-concordance",
+        help="Verified original PTB-XL label-concordance audit JSON.",
+    )
     parser.add_argument("--output", default="open_ecg_label_manifest.json")
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -31,22 +35,30 @@ def main() -> int:
                     "study": "TRUST-ECG",
                     "stage": "lock_common_label_manifest_before_waveform_training",
                     "requires": [
-                        "header audit SHA-256 valid",
-                        "ready_for_waveform_stage=true",
-                        "Challenge/PTB-XL checksum crosswalk valid",
-                        "protocol version match",
+                        "Challenge v1.0.2 aggregate label-support audit SHA-256 valid",
+                        "Challenge header/source/label-support gates ready",
+                        "original PTB-XL v1.0.1 label-concordance audit SHA-256 valid",
+                        "all seven PTB-XL SCP unions exactly concordant",
+                        "protocol v0.4.0 exact canonical mapping match",
+                        "Challenge PTB-XL prohibited as model input",
                     ],
-                    "output": "aggregate-only deterministic label manifest",
+                    "output": "aggregate-only deterministic two-source label manifest",
                 },
                 indent=2,
                 sort_keys=True,
             )
         )
         return 0
+    missing = []
     if not args.header_audit:
-        raise SystemExit("--header-audit is required outside --dry-run")
+        missing.append("--header-audit")
+    if not args.ptbxl_label_concordance:
+        missing.append("--ptbxl-label-concordance")
+    if missing:
+        raise SystemExit(f"Required outside --dry-run: {', '.join(missing)}")
     manifest = build_label_manifest(
         header_audit_path=args.header_audit,
+        ptbxl_label_concordance_path=args.ptbxl_label_concordance,
         protocol_path=PROTOCOL,
         scored_mapping_path=MAPPING,
     )
@@ -57,6 +69,7 @@ def main() -> int:
                 "label_count": report.label_count,
                 "canonical_codes": report.canonical_codes,
                 "source_header_audit_sha256": report.source_header_audit_sha256,
+                "ptbxl_label_concordance_audit_sha256": report.ptbxl_label_concordance_audit_sha256,
                 "manifest_sha256": report.manifest_sha256,
                 "output": report.output_path,
             },
