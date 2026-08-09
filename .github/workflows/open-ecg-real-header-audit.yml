@@ -8,10 +8,12 @@ on:
       - ".github/workflows/open-ecg-real-header-audit.yml"
       - "scripts/fetch_open_ecg_headers.py"
       - "scripts/diagnose_ptbxl_crosswalk.py"
+      - "scripts/diagnose_ptbxl_release_repair.py"
       - "scripts/prepare_open_ecg_data.py"
       - "scripts/lock_open_ecg_labels.py"
       - "src/trust_icu/__init__.py"
       - "src/trust_icu/ecg_data.py"
+      - "src/trust_icu/ecg_crosswalk.py"
       - "src/trust_icu/ecg_manifest.py"
       - "schemas/open_ecg_protocol.yaml"
       - "schemas/challenge2020_scored_classes.csv"
@@ -49,6 +51,9 @@ jobs:
             --workers 8 \
             --recovery-rounds 4 \
             --summary /tmp/trust_ecg_public/header_download_summary.json
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output /tmp/trust_ecg_public/ptbxl_database_v100.csv \
+            https://physionet.org/files/ptb-xl/1.0.0/ptbxl_database.csv
           echo "--- ephemeral download footprint ---"
           du -sh /tmp/trust_ecg_public
           echo "--- aggregate download summary ---"
@@ -111,6 +116,22 @@ jobs:
             echo "Crosswalk diagnostic inputs unavailable; skipping diagnostic."
           fi
 
+      - name: Diagnose PTB-XL v1.0.0 to v1.0.1 ID repair
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/trust_ecg_public/ptbxl_database_v100.csv ] && \
+             [ -f /tmp/trust_ecg_public/ptbxl_database.csv ] && \
+             [ -d /tmp/trust_ecg_public/challenge/ptb-xl ]; then
+            python scripts/diagnose_ptbxl_release_repair.py \
+              --ptbxl-v100-metadata /tmp/trust_ecg_public/ptbxl_database_v100.csv \
+              --ptbxl-v101-metadata /tmp/trust_ecg_public/ptbxl_database.csv \
+              --challenge-root /tmp/trust_ecg_public/challenge \
+              --output /tmp/trust_ecg_public/ptbxl_release_repair_diagnostic.json
+          else
+            echo "Release-repair diagnostic inputs unavailable; skipping diagnostic."
+          fi
+
       - name: Lock real common label manifest
         run: |
           set -euo pipefail
@@ -147,6 +168,8 @@ jobs:
               lines += [
                   f"- Ready for waveform stage: **{payload['ready_for_waveform_stage']}**",
                   f"- PTB-XL crosswalk valid: **{payload['ptbxl_crosswalk'].get('valid', False)}**",
+                  f"- PTB-XL crosswalk method: `{payload['ptbxl_crosswalk'].get('method')}`",
+                  f"- PTB-XL verified pairs: **{payload['ptbxl_crosswalk'].get('verified_pairs', 0)}**",
                   f"- Eligible labels: `{payload['eligible_labels']}`",
                   f"- Header audit SHA-256: `{payload['manifest_sha256']}`",
                   f"- Blockers: `{payload['blockers']}`",
@@ -155,13 +178,21 @@ jobs:
           if diagnostic.is_file():
               payload = json.loads(diagnostic.read_text())
               lines += [
-                  f"- Crosswalk rate mismatches: **{payload['sampling_rate_mismatches']}**",
-                  f"- Crosswalk sample-count mismatches: **{payload['sample_count_mismatches']}**",
-                  f"- Crosswalk lead-order mismatches: **{payload['lead_order_mismatches']}**",
-                  f"- Crosswalk checksum matches: **{payload['checksum_matches']}**",
-                  f"- Crosswalk checksum mismatches: **{payload['checksum_mismatches']}**",
+                  f"- Rank diagnostic checksum matches: **{payload['checksum_matches']}**",
+                  f"- Rank diagnostic checksum mismatches: **{payload['checksum_mismatches']}**",
                   f"- Challenge lead orders: `{payload['challenge_lead_orders']}`",
                   f"- Original lead orders: `{payload['original_lead_orders']}`",
+              ]
+          release = Path('/tmp/trust_ecg_public/ptbxl_release_repair_diagnostic.json')
+          if release.is_file():
+              payload = json.loads(release.read_text())
+              lines += [
+                  f"- v1.0.0 rows: **{payload['v100_rows']}**",
+                  f"- v1.0.1 rows: **{payload['v101_rows']}**",
+                  f"- v1.0.0 filename_hr changes by same ecg_id: **{payload['filename_hr_changed_same_ecg_id']}**",
+                  f"- v1.0.0 filename numeric==ecg_id: **{payload['v100_filename_hr_numeric_equals_ecg_id']}**",
+                  f"- v1.0.1 filename numeric==ecg_id: **{payload['v101_filename_hr_numeric_equals_ecg_id']}**",
+                  f"- Candidate demographic agreement: `{payload.get('candidate_demographic_agreement', {})}`",
               ]
           manifest = Path('/tmp/trust_ecg_public/open_ecg_label_manifest.json')
           if manifest.is_file():
