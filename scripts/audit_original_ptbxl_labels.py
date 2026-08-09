@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit original PTB-XL SCP labels against Challenge PTB-XL aggregate label counts."""
+"""Audit original PTB-XL SCP unions against Challenge PTB-XL aggregate label counts."""
 
 from __future__ import annotations
 
@@ -29,9 +29,10 @@ def main() -> int:
         print(
             json.dumps(
                 {
-                    "stage": "original_ptbxl_scp_to_challenge_label_concordance",
-                    "candidate_mapping": PTBXL_SCP_TO_CHALLENGE,
-                    "gate": "all_seven_labels_must_match_exactly_under_one_count_semantics",
+                    "stage": "original_ptbxl_scp_union_to_challenge_label_concordance",
+                    "frozen_mapping": PTBXL_SCP_TO_CHALLENGE,
+                    "count_semantics": "union_of_scp_key_presence_per_record",
+                    "gate": "all_seven_label_unions_must_match_challenge_counts_exactly",
                     "model_performance_touched": False,
                 },
                 indent=2,
@@ -53,12 +54,10 @@ def main() -> int:
                     {
                         "canonical_code": row.canonical_code,
                         "abbreviation": row.abbreviation,
-                        "scp_code": row.scp_code,
+                        "scp_codes": row.scp_codes,
                         "challenge_positive_count": row.challenge_positive_count,
-                        "original_ptbxl_key_present_count": row.original_ptbxl_key_present_count,
-                        "original_ptbxl_positive_likelihood_count": row.original_ptbxl_positive_likelihood_count,
-                        "exact_key_present_match": row.exact_key_present_match,
-                        "exact_positive_likelihood_match": row.exact_positive_likelihood_match,
+                        "original_ptbxl_union_key_present_count": row.original_ptbxl_union_key_present_count,
+                        "exact_union_key_present_match": row.exact_union_key_present_match,
                     }
                     for row in audit.label_rows
                 ],
