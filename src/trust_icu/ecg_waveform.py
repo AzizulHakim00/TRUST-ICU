@@ -15,12 +15,8 @@ from typing import Any
 import numpy as np
 from scipy.io import loadmat
 
-from trust_icu.ecg_data import (
-    EXPECTED_SOURCES,
-    parse_challenge_header,
-    validate_ptbxl_crosswalk,
-    validate_ptbxl_folds,
-)
+from trust_icu.ecg_crosswalk import resolve_ptbxl_checksum_crosswalk
+from trust_icu.ecg_data import EXPECTED_SOURCES, parse_challenge_header, validate_ptbxl_folds
 from trust_icu.ecg_manifest import load_and_verify_header_audit, load_and_verify_label_manifest
 from trust_icu.ecg_signal import (
     NormalizationStats,
@@ -92,30 +88,19 @@ def _update_corpus_hash(digest: Any, relative_path: str, raw: bytes) -> None:
     digest.update(b"\n")
 
 
-def _read_ptbxl_metadata(path: str | Path) -> list[dict[str, str]]:
-    metadata_path = Path(path).expanduser().resolve()
-    with metadata_path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        required = {"ecg_id", "patient_id", "strat_fold", "filename_hr"}
-        if not required.issubset(reader.fieldnames or []):
-            raise ValueError("PTB-XL metadata is missing required assignment columns.")
-        rows = [dict(row) for row in reader]
-    return rows
-
-
 def build_verified_ptbxl_assignments(
     *,
     challenge_ptbxl_root: str | Path,
     ptbxl_metadata_csv: str | Path,
     ptbxl_original_root: str | Path,
 ) -> tuple[PtbxlAssignment, ...]:
-    """Build record-to-fold assignments only after the checksum crosswalk passes."""
+    """Build fold assignments from the same checksum-identity crosswalk used by the header gate."""
 
     root = Path(challenge_ptbxl_root).expanduser().resolve()
     challenge_records = [
         parse_challenge_header(path, source="ptb-xl") for path in sorted(root.rglob("*.hea"))
     ]
-    crosswalk = validate_ptbxl_crosswalk(
+    resolved, crosswalk = resolve_ptbxl_checksum_crosswalk(
         challenge_records=challenge_records,
         metadata_csv=ptbxl_metadata_csv,
         original_ptbxl_root=ptbxl_original_root,
@@ -126,20 +111,20 @@ def build_verified_ptbxl_assignments(
     if folds.get("valid") is not True:
         raise RuntimeError(f"PTB-XL assignment blocked by invalid patient-wise folds: {folds}")
 
-    challenge_sorted = sorted(challenge_records, key=lambda record: _numeric_record_id(record.record_id))
-    metadata_sorted = sorted(_read_ptbxl_metadata(ptbxl_metadata_csv), key=lambda row: int(row["ecg_id"]))
-    if len(challenge_sorted) != len(metadata_sorted):
-        raise RuntimeError("PTB-XL assignment lengths differ after a successful crosswalk.")
     assignments = tuple(
         PtbxlAssignment(
-            challenge_record_id=record.record_id,
-            ecg_id=int(row["ecg_id"]),
-            strat_fold=int(row["strat_fold"]),
+            challenge_record_id=row.challenge_record_id,
+            ecg_id=row.ecg_id,
+            strat_fold=row.strat_fold,
         )
-        for record, row in zip(challenge_sorted, metadata_sorted, strict=True)
+        for row in sorted(resolved, key=lambda row: _numeric_record_id(row.challenge_record_id))
     )
+    if len(assignments) != len(challenge_records):
+        raise RuntimeError("Checksum-resolved PTB-XL assignment does not cover every Challenge record.")
     if len({item.challenge_record_id for item in assignments}) != len(assignments):
         raise RuntimeError("Duplicate Challenge PTB-XL record IDs in verified assignment.")
+    if len({item.ecg_id for item in assignments}) != len(assignments):
+        raise RuntimeError("Duplicate original PTB-XL ecg_id values in verified assignment.")
     return assignments
 
 
