@@ -9,7 +9,8 @@ from pathlib import Path
 
 import yaml
 
-from trust_icu.ecg_data import build_header_audit, scan_headers, write_header_audit
+from trust_icu.ecg_crosswalk import build_checksum_verified_header_audit
+from trust_icu.ecg_data import scan_headers, write_header_audit
 
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL = ROOT / "schemas/open_ecg_protocol.yaml"
@@ -60,9 +61,13 @@ def _download_plan() -> dict:
         "ptbxl_v1_0_1_metadata_url": "https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv",
         "ptbxl_v1_0_1_header_root_url": "https://physionet.org/files/ptb-xl/1.0.1/records500/",
         "crosswalk_rule": (
-            "Do not trust a filename formula. Numerically rank-pair Challenge PTB-XL records with "
-            "official ecg_id rows and require every pair to match all 12 WFDB checksums, sampling "
-            "rate, sample count, and lead order."
+            "Do not trust filename or rank formulas. Join Challenge PTB-XL to original PTB-XL by "
+            "the complete ordered 12-lead WFDB checksum signature, require a one-to-one match for "
+            "every record, then verify sampling rate, sample count, and canonical lead order."
+        ),
+        "augmented_lead_label_rule": (
+            "Only the documented original PTB-XL labels AVR/AVL/AVF are canonicalized to "
+            "aVR/aVL/aVF after checksum identity is established; no lead reordering is allowed."
         ),
         "reason": "Do not download waveforms or train models until label, fold, and record-crosswalk feasibility passes.",
     }
@@ -85,7 +90,7 @@ def main() -> int:
     protocol = _protocol()
     rules = protocol["prediction_task"]["labels"]["inclusion_rules"]
     records = scan_headers(args.header_root)
-    audit = build_header_audit(
+    audit = build_checksum_verified_header_audit(
         records=records,
         scored_mapping_path=SCORED_MAPPING,
         ptbxl_metadata_csv=args.ptbxl_metadata,
@@ -103,6 +108,8 @@ def main() -> int:
                 "eligible_label_count": len(audit.eligible_labels),
                 "eligible_labels": audit.eligible_labels,
                 "ptbxl_crosswalk_valid": bool(audit.ptbxl_crosswalk.get("valid", False)),
+                "ptbxl_crosswalk_method": audit.ptbxl_crosswalk.get("method"),
+                "ptbxl_verified_pairs": int(audit.ptbxl_crosswalk.get("verified_pairs", 0)),
                 "blockers": audit.blockers,
                 "manifest_sha256": audit.manifest_sha256,
                 "output": str(Path(args.output).resolve()),
