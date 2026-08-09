@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the locked TRUST-ECG Phase 0 reference or primary model."""
+"""Run the locked TRUST-ECG protocol-v0.4 reference or primary model."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from trust_icu.ecg_phase0 import (
+from trust_icu.ecg_phase0_v04 import (
     build_phase0_dry_run_plan,
     execute_logistic_reference_phase0,
     write_phase0_report,
@@ -20,7 +20,7 @@ DEFAULT_PROTOCOL = ROOT / "schemas/open_ecg_protocol.yaml"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", choices=("logistic", "resnet"), default="logistic")
-    parser.add_argument("--challenge-training-root")
+    parser.add_argument("--primary-data-root")
     parser.add_argument("--model-index")
     parser.add_argument("--model-index-audit")
     parser.add_argument("--label-manifest")
@@ -46,12 +46,14 @@ def main() -> int:
     if args.dry_run:
         plan = build_phase0_dry_run_plan(args.protocol)
         plan["requested_model"] = args.model
-        plan["resnet_optional_dependency_required"] = args.model == "resnet"
+        plan["resnet_optional_dependencies_required"] = (
+            ["torch", "wfdb"] if args.model == "resnet" else ["wfdb"]
+        )
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
 
     common = (
-        "challenge_training_root",
+        "primary_data_root",
         "model_index",
         "model_index_audit",
         "label_manifest",
@@ -62,7 +64,7 @@ def main() -> int:
 
     if args.model == "logistic":
         report = execute_logistic_reference_phase0(
-            challenge_training_root=args.challenge_training_root,
+            primary_data_root=args.primary_data_root,
             index_csv=args.model_index,
             index_audit_path=args.model_index_audit,
             label_manifest_path=args.label_manifest,
@@ -71,10 +73,10 @@ def main() -> int:
         report_path = output_root / "open_ecg_phase0_logistic_report.json"
     else:
         _require(args, ("waveform_audit", "normalization_stats"))
-        from trust_icu.ecg_deep_phase0 import execute_fixed_resnet_phase0
+        from trust_icu.ecg_deep_phase0_v04 import execute_fixed_resnet_phase0
 
         report = execute_fixed_resnet_phase0(
-            challenge_training_root=args.challenge_training_root,
+            primary_data_root=args.primary_data_root,
             index_csv=args.model_index,
             index_audit_path=args.model_index_audit,
             label_manifest_path=args.label_manifest,
