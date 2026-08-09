@@ -3,6 +3,23 @@
 TRUST-ECG Phase 1 is a **conditional calibration-recovery experiment**, not a new model-development
 stage. It is allowed only after the prospectively fixed ResNet completes Phase 0.
 
+## Pre-ResNet implementation lock
+
+The executable Phase-1 implementation was completed and passed both the ECG-specific integrity suite
+and the full repository CI **before the primary fixed-ResNet real-data run was activated**. The
+scientific implementation is locked to commit
+`4b5189d693ddd9ede6715cc3210b9157972144e2` for the ResNet workflow. The workflow fails closed if
+`src/trust_icu/ecg_phase1.py` or `scripts/run_open_ecg_phase1.py` drifts from that lock.
+
+This timing prevents Phase-1 sampling, recalibration, or reporting logic from being changed after
+observing the primary ResNet transportability result. It does not alter protocol v0.4, the frozen
+ResNet architecture, label set, statistical splits, Phase-0 thresholds, or Phase-0 data boundary.
+
+The conditional Phase-1 runner executes in the **same isolated GitHub Actions job** as the fixed
+ResNet. This is deliberate: the checkpoint and fold-9 calibration remain local ephemeral files and
+never need to be uploaded or committed. The recovery pool remains inaccessible until the completed
+ResNet report is hash-verified and satisfies the prospective Phase-1 activation rule.
+
 ## Activation gate
 
 The primary fixed-ResNet Phase-0 report is hash-verified before any recovery-pool waveform is
