@@ -1,0 +1,89 @@
+name: Real PTB-XL Label Concordance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - ".github/workflows/open-ecg-ptbxl-label-concordance.yml"
+      - "scripts/audit_original_ptbxl_labels.py"
+      - "src/trust_icu/ecg_ptbxl_labels.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trust-ecg-ptbxl-label-concordance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  label-concordance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install base runtime
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Fetch official PTB-XL v1.0.1 metadata only
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/trust_ecg_ptbxl
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output /tmp/trust_ecg_ptbxl/ptbxl_database.csv \
+            https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv
+          test -s /tmp/trust_ecg_ptbxl/ptbxl_database.csv
+          echo "Metadata bytes: $(wc -c < /tmp/trust_ecg_ptbxl/ptbxl_database.csv)"
+
+      - name: Run real aggregate label concordance gate
+        run: |
+          set -euo pipefail
+          python scripts/audit_original_ptbxl_labels.py \
+            --ptbxl-metadata /tmp/trust_ecg_ptbxl/ptbxl_database.csv \
+            --output /tmp/trust_ecg_ptbxl/ptbxl_label_concordance_audit.json \
+            --require-ready
+
+      - name: Record aggregate evidence
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          out = Path(os.environ['GITHUB_STEP_SUMMARY'])
+          audit_path = Path('/tmp/trust_ecg_ptbxl/ptbxl_label_concordance_audit.json')
+          lines = ['# TRUST-ECG original PTB-XL label concordance', '']
+          if audit_path.is_file():
+              audit = json.loads(audit_path.read_text())
+              lines += [
+                  f"- PTB-XL rows: **{audit['ptbxl_rows']}**",
+                  f"- Unique patients: **{audit['unique_patients']}**",
+                  f"- Patients spanning folds: **{audit['patients_spanning_multiple_folds']}**",
+                  f"- Count semantics: `{audit['selected_count_semantics']}`",
+                  f"- All 7 labels exactly concordant: **{audit['all_labels_exactly_concordant']}**",
+                  f"- Ready for original PTB-XL development: **{audit['ready_for_original_ptbxl_development']}**",
+                  f"- Blockers: `{audit['blockers']}`",
+                  f"- Audit SHA-256: `{audit['audit_sha256']}`",
+                  '',
+                  '| SNOMED | Abbr | SCP | Challenge count | Original key count | Original >0 count |',
+                  '|---|---|---:|---:|---:|---:|',
+              ]
+              for row in audit['label_rows']:
+                  lines.append(
+                      f"| {row['canonical_code']} | {row['abbreviation']} | {row['scp_code']} | "
+                      f"{row['challenge_positive_count']} | {row['original_ptbxl_key_present_count']} | "
+                      f"{row['original_ptbxl_positive_likelihood_count']} |"
+                  )
+          else:
+              lines.append('- Audit file was not produced.')
+          out.write_text('\n'.join(lines) + '\n')
+          PY
