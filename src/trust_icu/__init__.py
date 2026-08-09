@@ -8,6 +8,8 @@ prospective open ECG transportability protocol. Restricted patient-level data mu
 the repository.
 """
 
+import importlib
+
 from trust_icu.adapter_manifest import (
     AdapterDatasetReport,
     AdapterManifestReport,
@@ -129,18 +131,6 @@ from trust_icu.phase0_runtime import (
     temporal_patient_purged_split,
     verify_credentialed_run,
 )
-from trust_icu.phase1_gate import (
-    Phase1ActivationReport,
-    evaluate_phase1_activation,
-    load_phase1_protocol,
-    validate_phase1_protocol,
-)
-from trust_icu.reporting import (
-    ReportingBundle,
-    build_reporting_dry_run_plan,
-    generate_publication_bundle,
-    load_and_verify_phase0_report,
-)
 from trust_icu.source_validation import (
     CanonicalExtractAudit,
     audit_canonical_extract,
@@ -148,6 +138,30 @@ from trust_icu.source_validation import (
     validate_source_adapter_contract,
 )
 from trust_icu.validation import DatasetAudit, GateDecision, evaluate_feasibility
+
+_LAZY_EXPORTS = {
+    "Phase1ActivationReport": ("trust_icu.phase1_gate", "Phase1ActivationReport"),
+    "evaluate_phase1_activation": ("trust_icu.phase1_gate", "evaluate_phase1_activation"),
+    "load_phase1_protocol": ("trust_icu.phase1_gate", "load_phase1_protocol"),
+    "validate_phase1_protocol": ("trust_icu.phase1_gate", "validate_phase1_protocol"),
+    "ReportingBundle": ("trust_icu.reporting", "ReportingBundle"),
+    "build_reporting_dry_run_plan": ("trust_icu.reporting", "build_reporting_dry_run_plan"),
+    "generate_publication_bundle": ("trust_icu.reporting", "generate_publication_bundle"),
+    "load_and_verify_phase0_report": ("trust_icu.reporting", "load_and_verify_phase0_report"),
+}
+
+
+def __getattr__(name: str) -> object:
+    """Lazy-load optional reporting/Phase-1 exports without burdening core ECG utilities."""
+
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute_name = target
+    value = getattr(importlib.import_module(module_name), attribute_name)
+    globals()[name] = value
+    return value
+
 
 __all__ = [
     "FEATURE_STATISTICS",
