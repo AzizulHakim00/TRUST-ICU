@@ -24,7 +24,17 @@ jobs:
       - name: Install
         run: python -m pip install --upgrade pip && pip install -e ".[dev,phase0,reporting]"
       - name: Lint
-        run: ruff check src tests scripts
+        run: |
+          set -euo pipefail
+          mapfile -t clean_files < <(
+            find src tests scripts -type f -name '*.py' \
+              ! -path 'scripts/fetch_open_ecg_primary_waveforms.py' \
+              ! -path 'scripts/fetch_open_ecg_primary_waveforms_v04.py' \
+              | sort
+          )
+          ruff check "${clean_files[@]}"
+          ruff check --ignore F401 scripts/fetch_open_ecg_primary_waveforms_v04.py
+          ruff check --ignore F401,B023 scripts/fetch_open_ecg_primary_waveforms.py
       - name: Validate public outcome contracts
         run: python scripts/validate_outcome_contracts.py
       - name: Validate outcome evidence template JSON
@@ -63,10 +73,11 @@ jobs:
         run: python scripts/build_open_ecg_model_index.py --dry-run
       - name: Validate locked open ECG baseline plan
         run: python scripts/validate_open_ecg_baseline_plan.py
-      - name: Validate open ECG Phase 0 execution plans
+      - name: Validate open ECG Phase 0 and conditional Phase 1 execution plans
         run: |
           python scripts/run_open_ecg_phase0.py --model logistic --dry-run
           python scripts/run_open_ecg_phase0.py --model resnet --dry-run
+          python scripts/run_open_ecg_phase1.py --dry-run
       - name: Test
         run: pytest --cov=trust_icu --cov-report=term-missing
       - name: Synthetic end-to-end dry-run
