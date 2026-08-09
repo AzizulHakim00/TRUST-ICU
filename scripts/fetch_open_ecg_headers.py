@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fetch public metadata and WFDB headers needed for TRUST-ECG pre-waveform audits.
 
-The v0.4 study develops directly on original PTB-XL and therefore does not require original
-PTB-XL headers merely to reverse-map Challenge record names. Challenge filenames are discovered
-from live PhysioNet listings. Waveform samples are never downloaded by this script.
+Challenge filenames are discovered from live PhysioNet directory listings. The v0.4 production
+path fetches Challenge headers plus PTB-XL metadata only; waveform samples are never downloaded.
+A pre-fetched non-empty ``ptbxl_database.csv`` is reused so one transient metadata request cannot
+invalidate an otherwise reproducible 42,511-header audit.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ import threading
 import time
 import urllib.parse
 from collections import Counter
-from collections.abc import Iterable
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -71,8 +71,13 @@ def _drop_connection() -> None:
 
 def _read_url(url: str, *, attempts: int = 3, timeout: float = 30.0) -> bytes:
     parsed = urllib.parse.urlparse(url)
-    if parsed.scheme != "https" or parsed.hostname != "physionet.org" or parsed.username or parsed.password:
-        raise ValueError(f"TRUST-ECG header fetcher only permits https://physionet.org URLs: {url!r}")
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "physionet.org"
+        or parsed.username
+        or parsed.password
+    ):
+        raise ValueError(f"TRUST-ECG fetcher only permits https://physionet.org URLs: {url!r}")
     target = parsed.path or "/"
     if parsed.query:
         target += "?" + parsed.query
@@ -81,7 +86,11 @@ def _read_url(url: str, *, attempts: int = 3, timeout: float = 30.0) -> bytes:
     for attempt in range(attempts):
         try:
             connection = _connection(timeout=timeout)
-            connection.request("GET", target, headers={"User-Agent": _USER_AGENT, "Accept": "*/*"})
+            connection.request(
+                "GET",
+                target,
+                headers={"User-Agent": _USER_AGENT, "Accept": "*/*"},
+            )
             response = connection.getresponse()
             payload = response.read()
             if response.status != 200:
@@ -90,9 +99,8 @@ def _read_url(url: str, *, attempts: int = 3, timeout: float = 30.0) -> bytes:
         except (http.client.HTTPException, OSError, TimeoutError, RuntimeError) as exc:
             last_error = exc
             _drop_connection()
-            if attempt + 1 == attempts:
-                break
-            time.sleep(0.75 * (attempt + 1))
+            if attempt + 1 < attempts:
+                time.sleep(0.75 * (attempt + 1))
     raise RuntimeError(f"Failed to fetch {url!r} after {attempts} attempts") from last_error
 
 
@@ -105,7 +113,7 @@ def _directory_hrefs(url: str) -> list[str]:
 def _safe_leaf(value: str) -> str:
     parsed = urllib.parse.urlparse(value)
     if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
-        raise ValueError(f"Unexpected absolute or decorated directory href: {value!r}")
+        raise ValueError(f"Unexpected absolute or decorated href: {value!r}")
     leaf = Path(parsed.path).name
     if not leaf or leaf in {".", ".."} or "/" in leaf or "\\" in leaf:
         raise ValueError(f"Unsafe directory entry: {value!r}")
@@ -118,9 +126,8 @@ def _discover_subdirectories(root_url: str, pattern: re.Pattern[str]) -> list[st
         parsed = urllib.parse.urlparse(href)
         if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
             continue
-        candidate = parsed.path
-        if pattern.fullmatch(candidate):
-            entries.add(candidate)
+        if pattern.fullmatch(parsed.path):
+            entries.add(parsed.path)
     if not entries:
         raise RuntimeError(f"No expected subdirectories discovered at {root_url}")
     return sorted(entries)
@@ -132,29 +139,30 @@ def _discover_headers_in_directory(directory_url: str) -> list[str]:
         parsed = urllib.parse.urlparse(href)
         if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
             continue
-        if not parsed.path.endswith(".hea"):
-            continue
-        headers.add(_safe_leaf(parsed.path))
+        if parsed.path.endswith(".hea"):
+            headers.add(_safe_leaf(parsed.path))
     return sorted(headers)
 
 
-def _parallel_map(function, items: Iterable[str], *, workers: int):
+def _parallel_map(function, items: list[str], *, workers: int):
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         return list(executor.map(function, items))
 
 
-def _download_one(job: tuple[str, Path]) -> tuple[str, int]:
+def _download_one(job: tuple[str, Path]) -> int:
     url, destination = job
     if destination.is_file() and destination.stat().st_size > 0:
-        return str(destination), destination.stat().st_size
+        return destination.stat().st_size
     payload = _read_url(url)
     if not payload:
         raise RuntimeError(f"Refusing to write empty download from {url}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + f".partial.{os.getpid()}.{threading.get_ident()}")
+    temporary = destination.with_name(
+        destination.name + f".partial.{os.getpid()}.{threading.get_ident()}"
+    )
     temporary.write_bytes(payload)
     temporary.replace(destination)
-    return str(destination), len(payload)
+    return len(payload)
 
 
 def _download_jobs(
@@ -177,20 +185,16 @@ def _download_jobs(
             for future in concurrent.futures.as_completed(future_to_job):
                 job = future_to_job[future]
                 try:
-                    _, size = future.result()
-                except Exception as exc:  # noqa: BLE001 - aggregate retry boundary
+                    size = int(future.result())
+                except Exception as exc:  # noqa: BLE001 - bounded aggregate retry boundary
                     failures.append(job)
                     last_errors[job] = f"{type(exc).__name__}: {exc}"
                 else:
-                    completed[job] = int(size)
+                    completed[job] = size
                     last_errors.pop(job, None)
-
         failed_counts.append(len(failures))
-        if not failures:
-            pending = []
-            break
         pending = failures
-        if round_index < recovery_rounds:
+        if pending and round_index < recovery_rounds:
             _drop_connection()
             time.sleep(min(30.0, 5.0 * (round_index + 1)))
 
@@ -205,14 +209,14 @@ def _download_jobs(
         )
     if len(completed) != len(jobs):
         raise RuntimeError(
-            f"Header download accounting mismatch: completed={len(completed)}, expected={len(jobs)}"
+            f"Download accounting mismatch: completed={len(completed)}, expected={len(jobs)}"
         )
     return len(completed), sum(completed.values()), failed_counts
 
 
 def _challenge_jobs(output_root: Path, *, workers: int) -> tuple[list[tuple[str, Path]], dict[str, int]]:
     challenge_root = output_root / "challenge"
-    jobs: list[tuple[str, Path]] = []
+    all_jobs: list[tuple[str, Path]] = []
     discovered_counts: dict[str, int] = {}
     for source, expected in EXPECTED_SOURCES.items():
         source_url = f"{CHALLENGE_BASE}/{source}/"
@@ -222,20 +226,20 @@ def _challenge_jobs(output_root: Path, *, workers: int) -> tuple[list[tuple[str,
         source_jobs: list[tuple[str, Path]] = []
         for group, group_url, filenames in zip(groups, group_urls, listings, strict=True):
             group_name = group.rstrip("/")
-            for filename in filenames:
-                source_jobs.append(
-                    (
-                        urllib.parse.urljoin(group_url, filename),
-                        challenge_root / source / group_name / filename,
-                    )
+            source_jobs.extend(
+                (
+                    urllib.parse.urljoin(group_url, filename),
+                    challenge_root / source / group_name / filename,
                 )
+                for filename in filenames
+            )
         if len(source_jobs) != expected:
             raise RuntimeError(
                 f"PhysioNet listing for {source} exposed {len(source_jobs)} headers; expected {expected}."
             )
         discovered_counts[source] = len(source_jobs)
-        jobs.extend(source_jobs)
-    return jobs, discovered_counts
+        all_jobs.extend(source_jobs)
+    return all_jobs, discovered_counts
 
 
 def _ptbxl_original_jobs(output_root: Path, *, workers: int) -> list[tuple[str, Path]]:
@@ -246,18 +250,29 @@ def _ptbxl_original_jobs(output_root: Path, *, workers: int) -> list[tuple[str, 
     jobs: list[tuple[str, Path]] = []
     for directory, directory_url, filenames in zip(directories, directory_urls, listings, strict=True):
         dirname = directory.rstrip("/")
-        for filename in filenames:
-            jobs.append(
-                (
-                    urllib.parse.urljoin(directory_url, filename),
-                    original_root / dirname / filename,
-                )
+        jobs.extend(
+            (
+                urllib.parse.urljoin(directory_url, filename),
+                original_root / dirname / filename,
             )
+            for filename in filenames
+        )
     if len(jobs) != EXPECTED_SOURCES["ptb-xl"]:
         raise RuntimeError(
-            f"PTB-XL v1.0.1 records500 exposed {len(jobs)} headers; expected 21837."
+            f"PTB-XL records500 exposed {len(jobs)} headers; expected {EXPECTED_SOURCES['ptb-xl']}."
         )
     return jobs
+
+
+def _ensure_metadata(output_root: Path) -> tuple[Path, str]:
+    metadata_path = output_root / "ptbxl_database.csv"
+    if metadata_path.is_file() and metadata_path.stat().st_size > 0:
+        return metadata_path, "prefetched_reused"
+    payload = _read_url(PTBXL_METADATA_URL, attempts=5, timeout=45.0)
+    if not payload:
+        raise RuntimeError("PTB-XL metadata download was empty.")
+    metadata_path.write_bytes(payload)
+    return metadata_path, "python_https_downloaded"
 
 
 def parse_args() -> argparse.Namespace:
@@ -269,7 +284,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-original-ptbxl-headers",
         action="store_true",
-        help="v0.4 mode: do not fetch records500 headers because reverse crosswalk is retired.",
+        help="v0.4: do not fetch records500 headers because reverse crosswalk is retired.",
     )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -281,6 +296,7 @@ def main() -> int:
         raise SystemExit("--workers must be between 1 and 32")
     if not 0 <= args.recovery_rounds <= 8:
         raise SystemExit("--recovery-rounds must be between 0 and 8")
+
     output_root = Path(args.output_root).expanduser().resolve()
     summary_path = (
         Path(args.summary).expanduser().resolve()
@@ -298,6 +314,7 @@ def main() -> int:
                     "sources": EXPECTED_SOURCES,
                     "downloads_waveforms": False,
                     "downloads_original_ptbxl_headers": not args.skip_original_ptbxl_headers,
+                    "metadata_policy": "reuse_nonempty_prefetch_else_bounded_https_fetch",
                     "filename_discovery": "live_physionet_directory_listings",
                     "transport": "bounded_parallel_https_with_batch_failure_recovery",
                     "workers": args.workers,
@@ -310,9 +327,7 @@ def main() -> int:
         return 0
 
     output_root.mkdir(parents=True, exist_ok=True)
-    metadata_path = output_root / "ptbxl_database.csv"
-    metadata_path.write_bytes(_read_url(PTBXL_METADATA_URL, attempts=5, timeout=45.0))
-
+    metadata_path, metadata_source = _ensure_metadata(output_root)
     challenge_jobs, discovered = _challenge_jobs(output_root, workers=args.workers)
     challenge_downloaded, challenge_bytes, challenge_failures = _download_jobs(
         challenge_jobs,
@@ -324,31 +339,37 @@ def main() -> int:
     original_bytes = 0
     original_failures: list[int] = []
     if not args.skip_original_ptbxl_headers:
-        original_jobs = _ptbxl_original_jobs(output_root, workers=args.workers)
         original_downloaded, original_bytes, original_failures = _download_jobs(
-            original_jobs,
+            _ptbxl_original_jobs(output_root, workers=args.workers),
             workers=args.workers,
             recovery_rounds=args.recovery_rounds,
         )
 
-    observed_challenge = Counter()
-    for source in EXPECTED_SOURCES:
-        observed_challenge[source] = len(list((output_root / "challenge" / source).rglob("*.hea")))
+    observed_challenge = Counter(
+        {
+            source: len(list((output_root / "challenge" / source).rglob("*.hea")))
+            for source in EXPECTED_SOURCES
+        }
+    )
     if dict(observed_challenge) != EXPECTED_SOURCES:
         raise RuntimeError(f"Downloaded Challenge header counts are invalid: {dict(observed_challenge)}")
     observed_original = len(list((output_root / "ptbxl_original" / "records500").rglob("*.hea")))
-    if not args.skip_original_ptbxl_headers and observed_original != EXPECTED_SOURCES["ptb-xl"]:
-        raise RuntimeError(f"Downloaded original PTB-XL header count is {observed_original}, expected 21837")
     if args.skip_original_ptbxl_headers and observed_original != 0:
-        raise RuntimeError("v0.4 header-only fetch unexpectedly created original PTB-XL headers")
+        raise RuntimeError("v0.4 fetch unexpectedly created original PTB-XL reverse-crosswalk headers.")
+    if not args.skip_original_ptbxl_headers and observed_original != EXPECTED_SOURCES["ptb-xl"]:
+        raise RuntimeError(
+            f"Downloaded original PTB-XL header count is {observed_original}; "
+            f"expected {EXPECTED_SOURCES['ptb-xl']}."
+        )
 
-    summary = {
+    summary: dict[str, object] = {
         "study": "TRUST-ECG",
         "stage": "real_header_only_public_data_fetch",
         "challenge_version": "1.0.2",
         "ptbxl_version": "1.0.1",
         "filename_discovery": "live_physionet_directory_listings",
         "transport": "bounded_parallel_https_with_batch_failure_recovery",
+        "metadata_source": metadata_source,
         "workers": args.workers,
         "recovery_rounds": args.recovery_rounds,
         "waveform_files_downloaded": 0,
