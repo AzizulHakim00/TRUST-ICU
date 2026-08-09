@@ -254,7 +254,10 @@ def _fit_intercept_only(base_logits: np.ndarray, y: np.ndarray) -> float:
         raise ValueError("Intercept-only recalibration requires both target classes.")
 
     prevalence = float(np.mean(targets))
-    objective = lambda shift: float(np.mean(_sigmoid(logits + shift)) - prevalence)
+
+    def objective(shift: float) -> float:
+        return float(np.mean(_sigmoid(logits + shift)) - prevalence)
+
     return float(brentq(objective, -60.0, 60.0))
 
 
