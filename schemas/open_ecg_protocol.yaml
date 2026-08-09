@@ -1,10 +1,27 @@
-version: 0.3.0
-status: prospective_open_data_pivot
+version: 0.4.0
+status: prospective_open_data_pivot_amended_before_waveform_modeling
 study_name: TRUST-ECG
 working_title: >-
   TRUST-ECG: Transportability-Aware and Label-Efficient Deployment Certification
   for Multi-Source 12-Lead ECG Classification
 literature_collision_audit: docs/ecg_literature_collision_audit_2026-08-08.md
+
+prospective_amendment:
+  reason: >-
+    Real header-only audits proved that Challenge-renamed PTB-XL records cannot be safely
+    reverse-mapped to original PTB-XL patient folds by numeric rank or WFDB checksum identity.
+    Development therefore uses original PTB-XL v1.0.1 directly, preserving official patient IDs
+    and stratified folds. Challenge PTB-XL is retained only as aggregate label-concordance evidence.
+  made_before_any_waveform_model_performance_inspection: true
+  deprecated_crosswalk_methods:
+    - numeric_rank_pairing
+    - all_12_wfdb_checksum_signature_join
+  original_ptbxl_label_concordance:
+    required: true
+    audit_version: 0.2.0
+    real_audit_sha256: 29813e879b6b53172661449a7543c300cbf7768fdc97cb218cc04b6ff9aa7fa1
+    count_semantics: union_of_scp_key_presence_per_record
+    require_all_seven_labels_exactly_concordant: true
 
 resource:
   name: PhysioNet/Computing in Cardiology Challenge 2020
@@ -13,10 +30,19 @@ resource:
   access_policy: open
   license: CC-BY-4.0
   official_url: https://physionet.org/content/challenge-2020/1.0.2/
+  role: external_evaluation_and_aggregate_label_reference
   total_uncompressed_gb: 7.5
   hidden_challenge_test_set:
     use: false
     reason: not publicly released
+
+development_resource:
+  name: PTB-XL
+  version: 1.0.1
+  access_policy: open
+  license: CC-BY-4.0
+  official_url: https://physionet.org/content/ptb-xl/1.0.1/
+  role: sole_model_development_and_internal_validation_source
 
 sources:
   development:
@@ -24,13 +50,23 @@ sources:
       records: 21837
       source_version: 1.0.1
       role: model_development_and_internal_validation
+      input_release: original_ptbxl_v1_0_1
       patientwise_split_required: true
       official_ptb_xl_metadata_required: true
-      challenge_to_original_crosswalk:
-        required: true
-        method: numeric_rank_pairing_verified_by_all_12_wfdb_checksums
-        require_every_pair_verified: true
-        prohibit_unverified_filename_formula: true
+      waveform_source: records500
+      label_source: ptbxl_database_scp_codes
+      label_count_semantics: union_of_scp_key_presence_per_record
+      challenge_ptbxl_used_as_model_input: false
+      challenge_ptbxl_role: aggregate_label_concordance_reference_only
+      require_original_ptbxl_label_concordance_audit: true
+      frozen_label_mapping:
+        "59118001": [CRBBB]
+        "164889003": [AFIB]
+        "164909002": [CLBBB]
+        "270492004": [1AVB]
+        "284470004": [PAC, SVARR]
+        "426783006": [SR, NORM]
+        "427084000": [STACH]
   external_primary:
     georgia:
       records: 10344
@@ -48,6 +84,9 @@ sources:
     st_petersburg_incart:
       records: 74
       role: descriptive_or_smoke_test_only
+    challenge_ptb_xl:
+      records: 21837
+      role: aggregate_label_concordance_reference_only_never_model_input
 
 research_question: >-
   Can a frozen 12-lead ECG classifier retain discrimination and calibration across independent
@@ -65,8 +104,18 @@ prediction_task:
     primary: 12_lead_waveform_only
     secondary: waveform_plus_age_sex
   labels:
-    source: header_Dx_SNOMED_CT_codes
-    harmonization: official_challenge_equivalent_class_mapping
+    development_source: original_ptbxl_scp_codes
+    external_source: challenge_header_Dx_SNOMED_CT_codes
+    harmonization: frozen_original_ptbxl_scp_union_to_challenge_snomed_mapping
+    count_semantics: union_of_scp_key_presence_per_record
+    canonical_labels:
+      "59118001": {abbreviation: RBBB, ptbxl_scp_codes: [CRBBB]}
+      "164889003": {abbreviation: AF, ptbxl_scp_codes: [AFIB]}
+      "164909002": {abbreviation: LBBB, ptbxl_scp_codes: [CLBBB]}
+      "270492004": {abbreviation: IAVB, ptbxl_scp_codes: [1AVB]}
+      "284470004": {abbreviation: PAC, ptbxl_scp_codes: [PAC, SVARR]}
+      "426783006": {abbreviation: NSR, ptbxl_scp_codes: [SR, NORM]}
+      "427084000": {abbreviation: STach, ptbxl_scp_codes: [STACH]}
     lock_before_waveform_model_training: true
     inclusion_rules:
       minimum_development_positive_records: 500
@@ -105,7 +154,7 @@ signal_contract:
   no_external_domain_normalization_fit: true
 
 internal_validation:
-  development_source: ptb_xl
+  development_source: original_ptb_xl_v1_0_1
   use_official_patientwise_stratified_folds: true
   model_fit_folds: [1, 2, 3, 4, 5, 6, 7]
   optimization_validation_fold: 8
@@ -226,7 +275,9 @@ phase0_go_no_go:
   minimum_negative_records_in_certification_partition: 50
   require_no_patient_leakage_where_identifiers_exist: true
   require_label_harmonization_audit: true
-  require_ptbxl_crosswalk_audit: true
+  require_original_ptbxl_label_concordance_audit: true
+  require_ptbxl_crosswalk_audit: false
+  prohibit_challenge_ptbxl_as_model_input: true
   require_external_domain_not_used_for_tuning: true
   discrimination_viability:
     minimum_pr_auc_to_prevalence_ratio: 2.0
