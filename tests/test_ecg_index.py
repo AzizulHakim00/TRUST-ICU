@@ -20,7 +20,7 @@ def _canonical_hash(payload: dict, key: str) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _write_record(source_root: Path, record_id: str, dx: str = "426783006") -> None:
+def _write_external_record(source_root: Path, record_id: str, dx: str = "426783006") -> None:
     source_root.mkdir(parents=True, exist_ok=True)
     lines = [f"{record_id} 12 500 5000"]
     lines.extend(
@@ -32,30 +32,66 @@ def _write_record(source_root: Path, record_id: str, dx: str = "426783006") -> N
     (source_root / f"{record_id}.mat").write_bytes((record_id + "-waveform").encode())
 
 
-def _write_assignment(path: Path, ptb_ids: list[str]) -> tuple[PtbxlAssignment, ...]:
-    folds = [1, 8, 9, 10]
-    rows = tuple(
-        PtbxlAssignment(challenge_record_id=record_id, ecg_id=index + 1, strat_fold=folds[index])
-        for index, record_id in enumerate(ptb_ids)
+def _write_ptb_record(root: Path, ecg_id: int) -> PtbxlAssignment:
+    stem = f"{ecg_id:05d}_hr"
+    relative_base = Path("ptb-xl") / "records500" / "00000" / stem
+    header = root / relative_base.with_suffix(".hea")
+    waveform = root / relative_base.with_suffix(".dat")
+    header.parent.mkdir(parents=True, exist_ok=True)
+    leads = ("I", "II", "III", "AVR", "AVL", "AVF", "V1", "V2", "V3", "V4", "V5", "V6")
+    lines = [f"{stem} 12 500 5000"]
+    lines.extend(
+        f"{stem}.dat 16 1000/mV 16 0 0 {ecg_id * 100 + index} 0 {lead}"
+        for index, lead in enumerate(leads)
     )
+    header.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    waveform.write_bytes(f"ptb-{ecg_id}-waveform".encode())
+    folds = [1, 8, 9, 10]
+    return PtbxlAssignment(
+        record_id=stem,
+        ecg_id=ecg_id,
+        strat_fold=folds[ecg_id - 1],
+        relative_header_path=relative_base.with_suffix(".hea").as_posix(),
+        relative_waveform_path=relative_base.with_suffix(".dat").as_posix(),
+    )
+
+
+def _write_assignment(path: Path, rows: tuple[PtbxlAssignment, ...]) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["challenge_record_id", "ecg_id", "strat_fold"])
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "record_id",
+                "ecg_id",
+                "strat_fold",
+                "relative_header_path",
+                "relative_waveform_path",
+            ],
+        )
         writer.writeheader()
         for row in rows:
             writer.writerow(
                 {
-                    "challenge_record_id": row.challenge_record_id,
+                    "record_id": row.record_id,
                     "ecg_id": row.ecg_id,
                     "strat_fold": row.strat_fold,
+                    "relative_header_path": row.relative_header_path,
+                    "relative_waveform_path": row.relative_waveform_path,
                 }
             )
-    return rows
 
 
-def _corpus_hash(source_root: Path, header_paths: list[Path], suffix: str) -> str:
+def _write_metadata(path: Path, rows: tuple[PtbxlAssignment, ...]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["ecg_id", "scp_codes"])
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({"ecg_id": row.ecg_id, "scp_codes": "{'SR': 0.0}"})
+
+
+def _hash_files(source_root: Path, paths: list[Path]) -> str:
     digest = hashlib.sha256()
-    for header in header_paths:
-        path = header if suffix == ".hea" else header.with_suffix(suffix)
+    for path in sorted(paths, key=lambda value: value.relative_to(source_root).as_posix()):
         relative = path.relative_to(source_root).as_posix()
         digest.update(relative.encode())
         digest.update(b"\0")
@@ -64,30 +100,36 @@ def _corpus_hash(source_root: Path, header_paths: list[Path], suffix: str) -> st
     return digest.hexdigest()
 
 
-def _build_fixture(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, Path]:
+def _build_fixture(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, Path, Path]:
     expected = {"ptb-xl": 4, "georgia": 20, "cpsc_2018": 20, "cpsc_2018_extra": 20}
     monkeypatch.setattr(ecg_index, "EXPECTED_SOURCES", expected)
-    training = tmp_path / "training"
-    ptb_ids = [f"HR{index:05d}" for index in range(4)]
-    for record_id in ptb_ids:
-        _write_record(training / "ptb-xl", record_id)
+    root = tmp_path / "primary"
+    assignments = tuple(_write_ptb_record(root, index + 1) for index in range(4))
+    assignment_path = tmp_path / "ptbxl_verified_assignment.csv"
+    _write_assignment(assignment_path, assignments)
+    metadata_path = tmp_path / "ptbxl_database.csv"
+    _write_metadata(metadata_path, assignments)
+
     prefixes = {"georgia": "G", "cpsc_2018": "A", "cpsc_2018_extra": "Q"}
     for source, prefix in prefixes.items():
         for index in range(20):
-            _write_record(training / source, f"{prefix}{index:05d}")
-
-    assignment_path = tmp_path / "ptbxl_verified_assignment.csv"
-    assignments = _write_assignment(assignment_path, ptb_ids)
+            _write_external_record(root / source, f"{prefix}{index:05d}")
 
     manifest = {
-        "manifest_version": "0.1.0",
+        "manifest_version": "0.2.0",
         "study": "TRUST-ECG",
         "status": "locked_before_waveform_model_training",
+        "protocol_version": "0.4.0",
+        "development_source": "original_ptbxl_v1_0_1",
+        "external_source": "challenge2020_v1_0_2_georgia_cpsc",
+        "challenge_ptbxl_model_input": False,
+        "label_count_semantics": "union_of_scp_key_presence_per_record",
         "labels": [
             {
                 "canonical_code": "426783006",
                 "abbreviation": "NSR",
-                "member_codes": ["426783006"],
+                "ptbxl_scp_codes": ["SR", "NORM"],
+                "challenge_member_codes": ["426783006"],
             }
         ],
         "label_count": 1,
@@ -97,40 +139,55 @@ def _build_fixture(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, Path]
     manifest_path = tmp_path / "labels.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-    header_hashes = {}
-    waveform_hashes = {}
-    for source in expected:
-        source_root = training / source
-        headers = sorted(
-            source_root.glob("*.hea"),
-            key=lambda path: (ecg_index._numeric_record_id(path.stem), str(path)),
-        )
-        header_hashes[source] = _corpus_hash(source_root, headers, ".hea")
-        waveform_hashes[source] = _corpus_hash(source_root, headers, ".mat")
+    header_hashes: dict[str, str] = {}
+    waveform_hashes: dict[str, str] = {}
+    ptb_root = root / "ptb-xl"
+    ptb_headers = [root / row.relative_header_path for row in assignments]
+    ptb_waveforms = [root / row.relative_waveform_path for row in assignments]
+    header_hashes["ptb-xl"] = _hash_files(ptb_root, ptb_headers)
+    waveform_hashes["ptb-xl"] = _hash_files(ptb_root, ptb_waveforms)
+    for source in prefixes:
+        source_root = root / source
+        headers = sorted(source_root.glob("*.hea"))
+        waveforms = [path.with_suffix(".mat") for path in headers]
+        header_hashes[source] = _hash_files(source_root, headers)
+        waveform_hashes[source] = _hash_files(source_root, waveforms)
 
     waveform_audit = {
+        "audit_version": "0.2.0",
+        "development_source": "original_ptbxl_v1_0_1",
+        "challenge_ptbxl_model_input": False,
         "label_manifest_sha256": manifest["manifest_sha256"],
         "ptbxl_assignment_sha256": assignment_sha256(assignments),
         "source_header_corpus_sha256": header_hashes,
         "source_waveform_corpus_sha256": waveform_hashes,
+        "source_waveform_format": {
+            "ptb-xl": "wfdb_dat_original_ptbxl_v1_0_1",
+            "georgia": "challenge_mat_v4",
+            "cpsc_2018": "challenge_mat_v4",
+            "cpsc_2018_extra": "challenge_mat_v4",
+        },
         "ready_for_model_stage": True,
         "audit_sha256": "",
     }
     waveform_audit["audit_sha256"] = _canonical_hash(waveform_audit, "audit_sha256")
     waveform_path = tmp_path / "waveform_audit.json"
     waveform_path.write_text(json.dumps(waveform_audit), encoding="utf-8")
-    return training, waveform_path, manifest_path, assignment_path
+    return root, metadata_path, waveform_path, manifest_path, assignment_path
 
 
-def test_model_index_binds_roles_labels_and_corpus_hashes(tmp_path: Path, monkeypatch) -> None:
-    training, waveform, manifest, assignment = _build_fixture(tmp_path, monkeypatch)
+def test_model_index_binds_source_specific_labels_roles_and_hashes(tmp_path: Path, monkeypatch) -> None:
+    root, metadata, waveform, manifest, assignment = _build_fixture(tmp_path, monkeypatch)
     rows, audit = build_model_index(
-        challenge_training_root=training,
+        primary_data_root=root,
+        ptbxl_metadata_path=metadata,
         waveform_audit_path=waveform,
         label_manifest_path=manifest,
         ptbxl_assignment_path=assignment,
     )
     assert audit.ready_for_baseline_execution is True
+    assert audit.development_source == "original_ptbxl_v1_0_1"
+    assert audit.challenge_ptbxl_model_input is False
     assert audit.corpus_hashes_verified is True
     assert audit.total_rows == 64
     assert audit.role_rows["model_fit"] == 1
@@ -140,6 +197,11 @@ def test_model_index_binds_roles_labels_and_corpus_hashes(tmp_path: Path, monkey
     assert audit.role_rows["external_certification"] > 0
     assert audit.role_rows["external_recovery_pool"] > 0
     assert all(row.labels == (1,) for row in rows)
+    assert all(
+        row.waveform_format == "wfdb_dat_original_ptbxl_v1_0_1"
+        for row in rows
+        if row.source == "ptb-xl"
+    )
 
     output = tmp_path / "outputs"
     write_model_index(
@@ -152,12 +214,28 @@ def test_model_index_binds_roles_labels_and_corpus_hashes(tmp_path: Path, monkey
     assert verified["index_sha256"] == audit.index_sha256
 
 
-def test_waveform_mutation_blocks_model_index(tmp_path: Path, monkeypatch) -> None:
-    training, waveform, manifest, assignment = _build_fixture(tmp_path, monkeypatch)
-    target = training / "georgia" / "G00000.mat"
+def test_external_mat_mutation_blocks_model_index(tmp_path: Path, monkeypatch) -> None:
+    root, metadata, waveform, manifest, assignment = _build_fixture(tmp_path, monkeypatch)
+    target = root / "georgia" / "G00000.mat"
     target.write_bytes(target.read_bytes() + b"tamper")
     _, audit = build_model_index(
-        challenge_training_root=training,
+        primary_data_root=root,
+        ptbxl_metadata_path=metadata,
+        waveform_audit_path=waveform,
+        label_manifest_path=manifest,
+        ptbxl_assignment_path=assignment,
+    )
+    assert audit.ready_for_baseline_execution is False
+    assert "corpus_hash_changed_after_waveform_audit" in audit.blockers
+
+
+def test_development_dat_mutation_blocks_model_index(tmp_path: Path, monkeypatch) -> None:
+    root, metadata, waveform, manifest, assignment = _build_fixture(tmp_path, monkeypatch)
+    target = root / "ptb-xl" / "records500" / "00000" / "00001_hr.dat"
+    target.write_bytes(target.read_bytes() + b"tamper")
+    _, audit = build_model_index(
+        primary_data_root=root,
+        ptbxl_metadata_path=metadata,
         waveform_audit_path=waveform,
         label_manifest_path=manifest,
         ptbxl_assignment_path=assignment,
@@ -167,9 +245,10 @@ def test_waveform_mutation_blocks_model_index(tmp_path: Path, monkeypatch) -> No
 
 
 def test_tampered_index_audit_is_rejected(tmp_path: Path, monkeypatch) -> None:
-    training, waveform, manifest, assignment = _build_fixture(tmp_path, monkeypatch)
+    root, metadata, waveform, manifest, assignment = _build_fixture(tmp_path, monkeypatch)
     rows, audit = build_model_index(
-        challenge_training_root=training,
+        primary_data_root=root,
+        ptbxl_metadata_path=metadata,
         waveform_audit_path=waveform,
         label_manifest_path=manifest,
         ptbxl_assignment_path=assignment,
