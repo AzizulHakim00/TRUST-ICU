@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/open-ecg-real-header-audit.yml"
       - "scripts/fetch_open_ecg_headers.py"
+      - "scripts/diagnose_ptbxl_crosswalk.py"
       - "scripts/prepare_open_ecg_data.py"
       - "scripts/lock_open_ecg_labels.py"
       - "src/trust_icu/__init__.py"
@@ -94,6 +95,22 @@ jobs:
           fi
           exit "$status"
 
+      - name: Diagnose PTB-XL crosswalk components
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -d /tmp/trust_ecg_public/challenge/ptb-xl ] && \
+             [ -f /tmp/trust_ecg_public/ptbxl_database.csv ] && \
+             [ -d /tmp/trust_ecg_public/ptbxl_original ]; then
+            python scripts/diagnose_ptbxl_crosswalk.py \
+              --challenge-root /tmp/trust_ecg_public/challenge \
+              --ptbxl-metadata /tmp/trust_ecg_public/ptbxl_database.csv \
+              --ptbxl-original-root /tmp/trust_ecg_public/ptbxl_original \
+              --output /tmp/trust_ecg_public/ptbxl_crosswalk_diagnostic.json
+          else
+            echo "Crosswalk diagnostic inputs unavailable; skipping diagnostic."
+          fi
+
       - name: Lock real common label manifest
         run: |
           set -euo pipefail
@@ -133,6 +150,18 @@ jobs:
                   f"- Eligible labels: `{payload['eligible_labels']}`",
                   f"- Header audit SHA-256: `{payload['manifest_sha256']}`",
                   f"- Blockers: `{payload['blockers']}`",
+              ]
+          diagnostic = Path('/tmp/trust_ecg_public/ptbxl_crosswalk_diagnostic.json')
+          if diagnostic.is_file():
+              payload = json.loads(diagnostic.read_text())
+              lines += [
+                  f"- Crosswalk rate mismatches: **{payload['sampling_rate_mismatches']}**",
+                  f"- Crosswalk sample-count mismatches: **{payload['sample_count_mismatches']}**",
+                  f"- Crosswalk lead-order mismatches: **{payload['lead_order_mismatches']}**",
+                  f"- Crosswalk checksum matches: **{payload['checksum_matches']}**",
+                  f"- Crosswalk checksum mismatches: **{payload['checksum_mismatches']}**",
+                  f"- Challenge lead orders: `{payload['challenge_lead_orders']}`",
+                  f"- Original lead orders: `{payload['original_lead_orders']}`",
               ]
           manifest = Path('/tmp/trust_ecg_public/open_ecg_label_manifest.json')
           if manifest.is_file():
