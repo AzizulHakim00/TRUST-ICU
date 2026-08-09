@@ -1,0 +1,318 @@
+name: Real TRUST-ECG v0.4 Fixed ResNet Phase 0
+
+on:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - "triggers/open-ecg-resnet-phase0/**"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: trust-ecg-v04-resnet-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fixed-resnet-phase0:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Resolve and validate activation manifest
+        id: activation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          activation="triggers/open-ecg-resnet-phase0/activation.json"
+          test -f "$activation"
+          python scripts/validate_open_ecg_resnet_activation.py --activation "$activation" > /tmp/resnet_activation_summary.json
+          cat /tmp/resnet_activation_summary.json
+          run_id=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["logistic_workflow_run_id"])' "$activation")
+          python - "$activation" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text())
+          with Path(sys.argv[2]).open("a", encoding="utf-8") as handle:
+              handle.write(f"run_id={payload['logistic_workflow_run_id']}\n")
+              handle.write(f"logistic_sha={payload['logistic_head_sha']}\n")
+              handle.write(f"activation_path={sys.argv[1]}\n")
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" \
+            > /tmp/logistic_run.json
+          python - "$activation" /tmp/logistic_run.json <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          activation = json.loads(Path(sys.argv[1]).read_text())
+          run = json.loads(Path(sys.argv[2]).read_text())
+          expected = {
+              "id": activation["logistic_workflow_run_id"],
+              "status": "completed",
+              "conclusion": "success",
+              "head_sha": activation["logistic_head_sha"],
+              "head_branch": activation["logistic_branch"],
+              "path": activation["logistic_workflow_path"],
+          }
+          for field, value in expected.items():
+              if run.get(field) != value:
+                  raise SystemExit(
+                      f"GitHub run verification failed for {field}: "
+                      f"expected {value!r}, found {run.get(field)!r}"
+                  )
+          print("GitHub Logistic reference run verification passed.")
+          PY
+
+      - name: Guard scientific implementation against post-reference drift
+        env:
+          LOGISTIC_SHA: ${{ steps.activation.outputs.logistic_sha }}
+        run: |
+          set -euo pipefail
+          git cat-file -e "${LOGISTIC_SHA}^{commit}"
+          protected=(
+            pyproject.toml
+            schemas/open_ecg_protocol.yaml
+            src/trust_icu/ecg_baseline.py
+            src/trust_icu/ecg_index.py
+            src/trust_icu/ecg_manifest.py
+            src/trust_icu/ecg_phase0.py
+            src/trust_icu/ecg_phase0_v04.py
+            src/trust_icu/ecg_deep_phase0.py
+            src/trust_icu/ecg_deep_phase0_v04.py
+            src/trust_icu/ecg_resnet.py
+            src/trust_icu/ecg_signal.py
+            src/trust_icu/ecg_waveform.py
+            scripts/audit_original_ptbxl_labels.py
+            scripts/build_open_ecg_model_index.py
+            scripts/fetch_open_ecg_headers.py
+            scripts/fetch_open_ecg_primary_waveforms_v04.py
+            scripts/lock_open_ecg_labels.py
+            scripts/prepare_open_ecg_data.py
+            scripts/prepare_open_ecg_waveforms.py
+            scripts/run_open_ecg_phase0.py
+          )
+          if ! git diff --quiet "$LOGISTIC_SHA" "$GITHUB_SHA" -- "${protected[@]}"; then
+            echo "Scientific ECG implementation drifted after the verified Logistic run." >&2
+            git diff --name-only "$LOGISTIC_SHA" "$GITHUB_SHA" -- "${protected[@]}" >&2
+            exit 1
+          fi
+          echo "No protected ECG implementation drift detected."
+
+      - name: Install fixed-ResNet runtime
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ecg-deep]"
+          python - <<'PY'
+          import torch
+          print("torch", torch.__version__)
+          print("cuda_available", torch.cuda.is_available())
+          PY
+          df -h /
+
+      - name: Rebuild aggregate label evidence
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/trust_ecg_evidence /tmp/trust_ecg_primary /tmp/trust_ecg_work /tmp/trust_ecg_results
+          mkdir -p /tmp/trust_ecg_evidence
+          curl --fail --location --retry 8 --retry-all-errors --retry-delay 2 \
+            --output /tmp/trust_ecg_evidence/ptbxl_database.csv \
+            https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv
+          test -s /tmp/trust_ecg_evidence/ptbxl_database.csv
+          python scripts/fetch_open_ecg_headers.py \
+            --output-root /tmp/trust_ecg_evidence \
+            --workers 8 \
+            --recovery-rounds 4 \
+            --skip-original-ptbxl-headers \
+            --summary /tmp/trust_ecg_evidence/header_download_summary.json
+          python scripts/prepare_open_ecg_data.py \
+            --header-root /tmp/trust_ecg_evidence/challenge \
+            --ptbxl-metadata /tmp/trust_ecg_evidence/ptbxl_database.csv \
+            --output /tmp/trust_ecg_evidence/open_ecg_header_audit.json \
+            --require-ready
+          python scripts/audit_original_ptbxl_labels.py \
+            --ptbxl-metadata /tmp/trust_ecg_evidence/ptbxl_database.csv \
+            --output /tmp/trust_ecg_evidence/ptbxl_label_concordance_audit.json \
+            --require-ready
+          python scripts/lock_open_ecg_labels.py \
+            --header-audit /tmp/trust_ecg_evidence/open_ecg_header_audit.json \
+            --ptbxl-label-concordance /tmp/trust_ecg_evidence/ptbxl_label_concordance_audit.json \
+            --output /tmp/trust_ecg_evidence/open_ecg_label_manifest.json
+
+      - name: Seed primary root with external headers
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/trust_ecg_primary/ptb-xl
+          cp /tmp/trust_ecg_evidence/ptbxl_database.csv /tmp/trust_ecg_primary/ptb-xl/ptbxl_database.csv
+          for source in georgia cpsc_2018 cpsc_2018_extra; do
+            cp -a "/tmp/trust_ecg_evidence/challenge/${source}" "/tmp/trust_ecg_primary/${source}"
+          done
+
+      - name: Fetch exact primary waveform corpora
+        run: |
+          set -euo pipefail
+          python scripts/fetch_open_ecg_primary_waveforms_v04.py \
+            --output-root /tmp/trust_ecg_primary \
+            --workers 4 \
+            --recovery-rounds 4 \
+            --summary /tmp/trust_ecg_primary/waveform_download_summary.json
+          cat /tmp/trust_ecg_primary/waveform_download_summary.json
+          df -h /
+          du -sh /tmp/trust_ecg_primary
+
+      - name: Run waveform integrity and normalization audit
+        run: |
+          set -euo pipefail
+          python scripts/prepare_open_ecg_waveforms.py \
+            --primary-data-root /tmp/trust_ecg_primary \
+            --ptbxl-metadata /tmp/trust_ecg_primary/ptb-xl/ptbxl_database.csv \
+            --header-audit /tmp/trust_ecg_evidence/open_ecg_header_audit.json \
+            --label-manifest /tmp/trust_ecg_evidence/open_ecg_label_manifest.json \
+            --output-root /tmp/trust_ecg_work/waveform \
+            --require-ready
+
+      - name: Build verified source-aware model index
+        run: |
+          set -euo pipefail
+          python scripts/build_open_ecg_model_index.py \
+            --primary-data-root /tmp/trust_ecg_primary \
+            --ptbxl-metadata /tmp/trust_ecg_primary/ptb-xl/ptbxl_database.csv \
+            --waveform-audit /tmp/trust_ecg_work/waveform/open_ecg_waveform_audit.json \
+            --label-manifest /tmp/trust_ecg_evidence/open_ecg_label_manifest.json \
+            --ptbxl-assignment /tmp/trust_ecg_work/waveform/ptbxl_verified_assignment.csv \
+            --output-root /tmp/trust_ecg_work/model_index
+
+      - name: Verify reconstructed evidence against Logistic activation
+        env:
+          ACTIVATION_PATH: ${{ steps.activation.outputs.activation_path }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          activation = json.loads(Path(os.environ["ACTIVATION_PATH"]).read_text())
+          evidence = Path("/tmp/trust_ecg_evidence")
+          work = Path("/tmp/trust_ecg_work")
+          header = json.loads((evidence / "open_ecg_header_audit.json").read_text())
+          concordance = json.loads((evidence / "ptbxl_label_concordance_audit.json").read_text())
+          manifest = json.loads((evidence / "open_ecg_label_manifest.json").read_text())
+          waveform = json.loads((work / "waveform/open_ecg_waveform_audit.json").read_text())
+          index = json.loads((work / "model_index/open_ecg_model_index_audit.json").read_text())
+
+          observed = {
+              "header_audit_sha256": header["manifest_sha256"],
+              "ptbxl_label_concordance_audit_sha256": concordance["audit_sha256"],
+              "label_manifest_sha256": manifest["manifest_sha256"],
+              "waveform_audit_sha256": waveform["audit_sha256"],
+              "normalization_stats_sha256": waveform["normalization_stats_sha256"],
+              "ptbxl_assignment_sha256": waveform["ptbxl_assignment_sha256"],
+              "model_index_sha256": index["index_sha256"],
+              "model_index_audit_sha256": index["audit_sha256"],
+              "label_codes": index["label_codes"],
+          }
+          for field, value in observed.items():
+              if activation[field] != value:
+                  raise SystemExit(
+                      f"Reconstructed evidence mismatch for {field}: "
+                      f"expected {activation[field]!r}, found {value!r}"
+                  )
+          print("Reconstructed v0.4 evidence matches the completed Logistic reference state.")
+          PY
+
+      - name: Run primary fixed ResNet Phase 0
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/trust_ecg_results
+          python scripts/run_open_ecg_phase0.py \
+            --model resnet \
+            --primary-data-root /tmp/trust_ecg_primary \
+            --model-index /tmp/trust_ecg_work/model_index/open_ecg_model_index.csv \
+            --model-index-audit /tmp/trust_ecg_work/model_index/open_ecg_model_index_audit.json \
+            --label-manifest /tmp/trust_ecg_evidence/open_ecg_label_manifest.json \
+            --waveform-audit /tmp/trust_ecg_work/waveform/open_ecg_waveform_audit.json \
+            --normalization-stats /tmp/trust_ecg_work/waveform/open_ecg_normalization_stats.json \
+            --output-root /tmp/trust_ecg_results \
+            --device cpu \
+            --num-workers 2
+
+      - name: Emit aggregate-only primary evidence
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          results = Path("/tmp/trust_ecg_results")
+          report = json.loads((results / "open_ecg_phase0_resnet_report.json").read_text())
+          calibration = json.loads((results / "open_ecg_resnet_calibration.json").read_text())
+          history = json.loads((results / "open_ecg_resnet_training_history.json").read_text())
+          safe = {
+              "protocol_version": report["protocol_version"],
+              "model_name": report["model_name"],
+              "primary_gate_eligible": report["primary_gate_eligible"],
+              "external_recovery_pool_used": report["external_recovery_pool_used"],
+              "label_codes": report["label_codes"],
+              "role_rows": report["role_rows"],
+              "internal_test": report["internal_test"],
+              "external_certification": report["external_certification"],
+              "model_sha256": report["model_sha256"],
+              "report_sha256": report["report_sha256"],
+              "calibration_sha256": calibration["sha256"],
+              "best_epoch": history["best_epoch"],
+              "best_fold8_macro_pr_auc": history["best_fold8_macro_pr_auc"],
+              "epochs_completed": history["epochs_completed"],
+          }
+          print("--- TRUST_ECG_REAL_RESNET_AGGREGATE_EVIDENCE_BEGIN ---")
+          print(json.dumps(safe, indent=2, sort_keys=True))
+          print("--- TRUST_ECG_REAL_RESNET_AGGREGATE_EVIDENCE_END ---")
+          PY
+
+      - name: Record aggregate-only summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          lines = ["# TRUST-ECG v0.4 fixed ResNet Phase 0", ""]
+          report = Path("/tmp/trust_ecg_results/open_ecg_phase0_resnet_report.json")
+          history = Path("/tmp/trust_ecg_results/open_ecg_resnet_training_history.json")
+          if report.is_file():
+              payload = json.loads(report.read_text())
+              lines += [
+                  f"- Primary-gate eligible model: **{payload['primary_gate_eligible']}**",
+                  f"- Recovery pool used in Phase 0: **{payload['external_recovery_pool_used']}**",
+                  f"- Internal macro PR-AUC: **{payload['internal_test']['macro_pr_auc']:.6f}**",
+                  f"- Model SHA-256: `{payload['model_sha256']}`",
+                  f"- Report SHA-256: `{payload['report_sha256']}`",
+              ]
+          if history.is_file():
+              payload = json.loads(history.read_text())
+              lines += [
+                  f"- Best fold-8 epoch: **{payload['best_epoch']}**",
+                  f"- Best fold-8 macro PR-AUC: **{payload['best_fold8_macro_pr_auc']:.6f}**",
+                  f"- Epochs completed: **{payload['epochs_completed']}**",
+              ]
+          lines += [
+              "",
+              "No waveform, checkpoint, record-level index, calibration file, prediction, "
+              "or patient-level artifact is uploaded.",
+          ]
+          summary.write_text("\n".join(lines) + "\n")
+          PY
