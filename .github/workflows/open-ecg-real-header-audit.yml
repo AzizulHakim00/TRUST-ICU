@@ -44,6 +44,11 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf /tmp/trust_ecg_public
+          mkdir -p /tmp/trust_ecg_public
+          curl --fail --location --retry 8 --retry-all-errors --retry-delay 2 \
+            --output /tmp/trust_ecg_public/ptbxl_database.csv \
+            https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv
+          test -s /tmp/trust_ecg_public/ptbxl_database.csv
           python scripts/fetch_open_ecg_headers.py \
             --output-root /tmp/trust_ecg_public \
             --workers 8 \
@@ -91,6 +96,7 @@ jobs:
           concordance = json.loads((root / 'ptbxl_label_concordance_audit.json').read_text())
           manifest = json.loads((root / 'open_ecg_label_manifest.json').read_text())
           assert download['waveform_files_downloaded'] == 0
+          assert download['metadata_source'] == 'prefetched_reused'
           assert download['ptbxl_original_headers_requested'] is False
           assert download['ptbxl_original_header_files'] == 0
           assert header['ready_for_waveform_stage'] is True
@@ -103,6 +109,7 @@ jobs:
           assert manifest['ptbxl_label_concordance_audit_sha256'] == concordance['audit_sha256']
           print(json.dumps({
               'challenge_header_counts': download['challenge_downloaded_counts'],
+              'metadata_source': download['metadata_source'],
               'waveform_files_downloaded': download['waveform_files_downloaded'],
               'original_ptbxl_headers_downloaded_for_crosswalk': download['ptbxl_original_header_files'],
               'header_audit_sha256': header['manifest_sha256'],
@@ -130,6 +137,7 @@ jobs:
               payload = json.loads(download_path.read_text())
               lines += [
                   f"- Challenge v{payload['challenge_version']} header counts: `{payload['challenge_downloaded_counts']}`",
+                  f"- Metadata source: `{payload['metadata_source']}`",
                   f"- Waveform files downloaded: **{payload['waveform_files_downloaded']}**",
                   f"- Original PTB-XL headers fetched for reverse crosswalk: **{payload['ptbxl_original_header_files']}**",
               ]
