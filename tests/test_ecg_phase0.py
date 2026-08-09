@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from trust_icu.ecg_index import EcgIndexRow, model_index_sha256
-from trust_icu.ecg_phase0 import (
+from trust_icu.ecg_phase0_v04 import (
     build_phase0_dry_run_plan,
     execute_logistic_reference_phase0,
     load_and_verify_model_index,
@@ -37,12 +37,18 @@ def _fixture_index(tmp_path: Path) -> tuple[Path, Path, Path, list[EcgIndexRow]]
         nonlocal counter
         for label in labels:
             record_id = f"R{counter:05d}"
+            is_ptb = source == "ptb-xl"
+            waveform_suffix = ".dat" if is_ptb else ".mat"
+            waveform_format = (
+                "wfdb_dat_original_ptbxl_v1_0_1" if is_ptb else "challenge_mat_v4"
+            )
             rows.append(
                 EcgIndexRow(
                     source=source,
                     record_id=record_id,
                     relative_header_path=f"{source}/{record_id}.hea",
-                    relative_mat_path=f"{source}/{record_id}.mat",
+                    relative_waveform_path=f"{source}/{record_id}{waveform_suffix}",
+                    waveform_format=waveform_format,
                     role=role,  # type: ignore[arg-type]
                     strat_fold={
                         "model_fit": 1,
@@ -72,7 +78,8 @@ def _fixture_index(tmp_path: Path) -> tuple[Path, Path, Path, list[EcgIndexRow]]
                 "source",
                 "record_id",
                 "relative_header_path",
-                "relative_mat_path",
+                "relative_waveform_path",
+                "waveform_format",
                 "role",
                 "strat_fold",
                 "label_426783006",
@@ -85,7 +92,8 @@ def _fixture_index(tmp_path: Path) -> tuple[Path, Path, Path, list[EcgIndexRow]]
                     "source": row.source,
                     "record_id": row.record_id,
                     "relative_header_path": row.relative_header_path,
-                    "relative_mat_path": row.relative_mat_path,
+                    "relative_waveform_path": row.relative_waveform_path,
+                    "waveform_format": row.waveform_format,
                     "role": row.role,
                     "strat_fold": "" if row.strat_fold is None else row.strat_fold,
                     "label_426783006": row.labels[0],
@@ -93,15 +101,20 @@ def _fixture_index(tmp_path: Path) -> tuple[Path, Path, Path, list[EcgIndexRow]]
             )
 
     manifest = {
-        "manifest_version": "0.1.0",
+        "manifest_version": "0.2.0",
         "study": "TRUST-ECG",
         "status": "locked_before_waveform_model_training",
+        "protocol_version": "0.4.0",
+        "development_source": "original_ptbxl_v1_0_1",
+        "challenge_ptbxl_model_input": False,
         "labels": [
             {
                 "canonical_code": "426783006",
-                "member_codes": ["426783006"],
+                "ptbxl_scp_codes": ["SR", "NORM"],
+                "challenge_member_codes": ["426783006"],
             }
         ],
+        "label_count": 1,
         "manifest_sha256": "",
     }
     manifest["manifest_sha256"] = _hash_payload(manifest, "manifest_sha256")
@@ -111,7 +124,9 @@ def _fixture_index(tmp_path: Path) -> tuple[Path, Path, Path, list[EcgIndexRow]]
     source_counts = Counter(row.source for row in rows)
     role_counts = Counter(row.role for row in rows)
     audit = {
-        "audit_version": "0.1.0",
+        "audit_version": "0.2.0",
+        "development_source": "original_ptbxl_v1_0_1",
+        "challenge_ptbxl_model_input": False,
         "waveform_audit_sha256": "a" * 64,
         "label_manifest_sha256": manifest["manifest_sha256"],
         "label_codes": list(label_codes),
@@ -120,6 +135,12 @@ def _fixture_index(tmp_path: Path) -> tuple[Path, Path, Path, list[EcgIndexRow]]
         "role_rows": dict(sorted(role_counts.items())),
         "source_role_rows": {},
         "source_label_positives": {},
+        "source_waveform_format": {
+            "ptb-xl": "wfdb_dat_original_ptbxl_v1_0_1",
+            "georgia": "challenge_mat_v4",
+            "cpsc_2018": "challenge_mat_v4",
+            "cpsc_2018_extra": "challenge_mat_v4",
+        },
         "rows_with_no_locked_positive_label": 0,
         "duplicate_source_record_ids": 0,
         "corpus_hashes_verified": True,
@@ -138,6 +159,8 @@ def test_phase0_dry_run_keeps_recovery_pool_prohibited() -> None:
     plan = build_phase0_dry_run_plan(PROTOCOL)
     assert plan["primary_gate_model"] == "resnet1d_fixed_only"
     assert plan["external_recovery_pool_access"] == "prohibited"
+    assert plan["development_source"] == "original_ptbxl_v1_0_1"
+    assert plan["challenge_ptbxl_model_input"] is False
 
 
 def test_model_index_loader_rejects_tampered_label(tmp_path: Path) -> None:
@@ -145,8 +168,16 @@ def test_model_index_loader_rejects_tampered_label(tmp_path: Path) -> None:
     rows, _ = load_and_verify_model_index(index_csv=index_path, index_audit_path=audit_path)
     assert any(row.role == "external_recovery_pool" for row in rows)
 
-    text = index_path.read_text(encoding="utf-8")
-    index_path.write_text(text.replace(",external_recovery_pool,,0", ",external_recovery_pool,,1", 1), encoding="utf-8")
+    lines = index_path.read_text(encoding="utf-8").splitlines()
+    header = lines[0].split(",")
+    label_index = header.index("label_426783006")
+    for index in range(1, len(lines)):
+        parts = lines[index].split(",")
+        if "external_recovery_pool" in parts:
+            parts[label_index] = "1" if parts[label_index] == "0" else "0"
+            lines[index] = ",".join(parts)
+            break
+    index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="SHA-256"):
         load_and_verify_model_index(index_csv=index_path, index_audit_path=audit_path)
 
@@ -196,9 +227,9 @@ def test_logistic_phase0_never_loads_recovery_records(tmp_path: Path, monkeypatc
             valid_mask=np.ones(waveform.shape[1], dtype=bool),
         )
 
-    monkeypatch.setattr("trust_icu.ecg_phase0._load_standardized_record", fake_load)
+    monkeypatch.setattr("trust_icu.ecg_phase0_v04.load_standardized_record", fake_load)
     report = execute_logistic_reference_phase0(
-        challenge_training_root=tmp_path,
+        primary_data_root=tmp_path,
         index_csv=index_path,
         index_audit_path=audit_path,
         label_manifest_path=manifest_path,
