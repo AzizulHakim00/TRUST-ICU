@@ -56,7 +56,7 @@ jobs:
             --output /tmp/trust_ecg_ptbxl/ptbxl_label_concordance_audit.json \
             --require-ready
 
-      - name: Diagnose unresolved SCP harmonization
+      - name: Diagnose SCP harmonization
         if: always()
         run: |
           set -euo pipefail
@@ -92,22 +92,23 @@ jobs:
                   f"- Blockers: `{audit['blockers']}`",
                   f"- Audit SHA-256: `{audit['audit_sha256']}`",
                   '',
-                  '| SNOMED | Abbr | SCP | Challenge count | Original key count | Original >0 count |',
-                  '|---|---|---:|---:|---:|---:|',
+                  '| SNOMED | Abbr | PTB-XL SCP union | Challenge count | Original union count | Exact |',
+                  '|---|---|---|---:|---:|---|',
               ]
               for row in audit['label_rows']:
                   lines.append(
-                      f"| {row['canonical_code']} | {row['abbreviation']} | {row['scp_code']} | "
-                      f"{row['challenge_positive_count']} | {row['original_ptbxl_key_present_count']} | "
-                      f"{row['original_ptbxl_positive_likelihood_count']} |"
+                      f"| {row['canonical_code']} | {row['abbreviation']} | "
+                      f"{' + '.join(row['scp_codes'])} | {row['challenge_positive_count']} | "
+                      f"{row['original_ptbxl_union_key_present_count']} | "
+                      f"{row['exact_union_key_present_match']} |"
                   )
           if diagnostic_path.is_file():
               diag = json.loads(diagnostic_path.read_text())
-              lines += ['', '## Unresolved SCP exact-union candidates']
+              lines += ['', '## Aggregate SCP harmonization diagnostic']
               for name, item in diag['targets'].items():
                   lines.append(
                       f"- {name}: base `{item['base_scp_code']}`={item['base_count']}, "
-                      f"target={item['target_challenge_count']}, candidates="
+                      f"target={item['target_challenge_count']}, exact-union candidates="
                       f"`{item['single_code_exact_union_candidates']}`"
                   )
           out.write_text('\n'.join(lines) + '\n')
