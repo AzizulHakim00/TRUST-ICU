@@ -20,6 +20,7 @@ from trust_icu.ecg_data import EXPECTED_LEADS
 _GAIN_RE = re.compile(
     r"^(?P<gain>[+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:\((?P<baseline>[+-]?\d+)\))?/(?P<unit>[^\s]+)$"
 )
+_AUGMENTED_LEAD_CANONICAL = {"AVR": "aVR", "AVL": "aVL", "AVF": "aVF"}
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,12 @@ def _sha256_payload(payload: dict[str, Any], key: str) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def canonical_lead_name(name: str) -> str:
+    """Normalize only the documented augmented-lead capitalization difference."""
+
+    return _AUGMENTED_LEAD_CANONICAL.get(str(name), str(name))
+
+
 def _parse_gain(token: str, adc_zero: str) -> tuple[float, float, str]:
     match = _GAIN_RE.match(token)
     if not match:
@@ -79,7 +86,7 @@ def _parse_gain(token: str, adc_zero: str) -> tuple[float, float, str]:
 
 
 def parse_signal_header(path: str | Path) -> tuple[str, float, int, tuple[SignalSpec, ...]]:
-    """Parse physical scaling information from a Challenge/WFDB header."""
+    """Parse physical scaling information from a Challenge or original PTB-XL WFDB header."""
 
     header_path = Path(path)
     lines = [
@@ -109,7 +116,7 @@ def parse_signal_header(path: str | Path) -> tuple[str, float, int, tuple[Signal
         gain, baseline, unit = _parse_gain(tokens[2], tokens[4])
         specs.append(
             SignalSpec(
-                lead=tokens[-1],
+                lead=canonical_lead_name(tokens[-1]),
                 gain_per_unit=gain,
                 baseline_digital=baseline,
                 physical_unit=unit,
@@ -124,7 +131,7 @@ def parse_signal_header(path: str | Path) -> tuple[str, float, int, tuple[Signal
 
 
 def load_mat_digital_signal(path: str | Path) -> np.ndarray:
-    """Load the Challenge MATLAB-v4 `val` matrix as floating point digital samples."""
+    """Load a Challenge MATLAB-v4 `val` matrix as floating point digital samples."""
 
     mat_path = Path(path)
     payload = loadmat(mat_path)
@@ -136,6 +143,35 @@ def load_mat_digital_signal(path: str | Path) -> np.ndarray:
     if not np.isfinite(values).all():
         raise ValueError(f"ECG signal contains non-finite digital samples: {mat_path}")
     return values
+
+
+def load_wfdb_physical_signal(record_stem: str | Path) -> tuple[np.ndarray, tuple[str, ...], float]:
+    """Load one original PTB-XL WFDB record as physical mV using the official WFDB reader."""
+
+    try:
+        import wfdb
+    except ImportError as exc:  # pragma: no cover - exercised only without optional runtime
+        raise RuntimeError(
+            "Original PTB-XL waveform execution requires the optional 'ecg-waveform' dependency."
+        ) from exc
+
+    stem = Path(record_stem).expanduser().resolve()
+    record = wfdb.rdrecord(str(stem), physical=True)
+    signal = getattr(record, "p_signal", None)
+    names = getattr(record, "sig_name", None)
+    units = getattr(record, "units", None)
+    fs = float(getattr(record, "fs", 0.0))
+    if signal is None or names is None or units is None:
+        raise ValueError(f"WFDB record is missing physical signal metadata: {stem}")
+    values = np.asarray(signal, dtype=np.float64)
+    if values.ndim != 2 or values.shape[1] != len(EXPECTED_LEADS):
+        raise ValueError(f"Original PTB-XL WFDB record must contain 12 channels: {stem}")
+    if not np.isfinite(values).all() or fs <= 0:
+        raise ValueError(f"Original PTB-XL WFDB record contains invalid physical samples: {stem}")
+    if any(str(unit) != "mV" for unit in units):
+        raise ValueError(f"Original PTB-XL WFDB record must resolve to mV units: {stem}")
+    leads = tuple(canonical_lead_name(str(name)) for name in names)
+    return values.T, leads, fs
 
 
 def digital_to_physical_mv(digital: np.ndarray, specs: tuple[SignalSpec, ...]) -> np.ndarray:
@@ -168,19 +204,30 @@ def _resample_to_target(signal: np.ndarray, source_rate: float, target_rate: int
     return resample_poly(signal, up=ratio.numerator, down=ratio.denominator, axis=1)
 
 
-def standardize_signal(
-    digital: np.ndarray,
-    specs: tuple[SignalSpec, ...],
+def standardize_physical_signal(
+    physical_mv: np.ndarray,
+    lead_names: tuple[str, ...] | list[str],
     *,
     source_sampling_rate_hz: float,
     target_sampling_rate_hz: int = 500,
     target_duration_seconds: int = 10,
 ) -> StandardizedSignal:
-    """Convert, resample, and deterministically center-crop or symmetrically pad one ECG."""
+    """Reorder a physical-mV ECG, resample, then deterministically crop/pad to 10 seconds."""
 
-    physical = digital_to_physical_mv(digital, specs)
-    source_sample_count = physical.shape[1]
-    resampled = _resample_to_target(physical, source_sampling_rate_hz, target_sampling_rate_hz)
+    values = np.asarray(physical_mv, dtype=np.float64)
+    leads = tuple(canonical_lead_name(str(value)) for value in lead_names)
+    if values.ndim != 2 or values.shape[0] != len(leads):
+        raise ValueError("Physical ECG shape does not match supplied lead names.")
+    if len(set(leads)) != len(EXPECTED_LEADS) or set(leads) != set(EXPECTED_LEADS):
+        raise ValueError("Physical ECG must contain each standard 12-lead name exactly once.")
+    if not np.isfinite(values).all():
+        raise ValueError("Physical ECG contains non-finite values.")
+    if not math.isfinite(source_sampling_rate_hz) or source_sampling_rate_hz <= 0:
+        raise ValueError("Physical ECG sampling rate must be positive and finite.")
+    by_lead = {lead: values[index] for index, lead in enumerate(leads)}
+    ordered = np.stack([by_lead[lead] for lead in EXPECTED_LEADS], axis=0)
+    source_sample_count = ordered.shape[1]
+    resampled = _resample_to_target(ordered, source_sampling_rate_hz, target_sampling_rate_hz)
     target_samples = target_sampling_rate_hz * target_duration_seconds
     current = resampled.shape[1]
     crop_start: int | None = None
@@ -221,6 +268,26 @@ def standardize_signal(
         crop_start_after_resampling=crop_start,
         left_padding=left_padding,
         right_padding=right_padding,
+    )
+
+
+def standardize_signal(
+    digital: np.ndarray,
+    specs: tuple[SignalSpec, ...],
+    *,
+    source_sampling_rate_hz: float,
+    target_sampling_rate_hz: int = 500,
+    target_duration_seconds: int = 10,
+) -> StandardizedSignal:
+    """Convert a digital ECG to physical mV and apply the locked signal window contract."""
+
+    physical = digital_to_physical_mv(digital, specs)
+    return standardize_physical_signal(
+        physical,
+        tuple(spec.lead for spec in specs),
+        source_sampling_rate_hz=source_sampling_rate_hz,
+        target_sampling_rate_hz=target_sampling_rate_hz,
+        target_duration_seconds=target_duration_seconds,
     )
 
 
