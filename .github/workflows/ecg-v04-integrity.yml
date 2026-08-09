@@ -5,6 +5,7 @@ on:
     branches: [open-ecg-transportability]
     paths:
       - ".github/workflows/ecg-v04-integrity.yml"
+      - ".github/workflows/open-ecg-real-resnet-phase0-v04.yml"
       - "schemas/open_ecg_protocol.yaml"
       - "src/trust_icu/ecg_*.py"
       - "scripts/*ecg*.py"
@@ -12,6 +13,7 @@ on:
       - "pyproject.toml"
   pull_request:
     paths:
+      - ".github/workflows/open-ecg-real-resnet-phase0-v04.yml"
       - "schemas/open_ecg_protocol.yaml"
       - "src/trust_icu/ecg_*.py"
       - "scripts/*ecg*.py"
