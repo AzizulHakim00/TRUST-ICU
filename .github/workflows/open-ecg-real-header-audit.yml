@@ -9,6 +9,7 @@ on:
       - "scripts/fetch_open_ecg_headers.py"
       - "scripts/prepare_open_ecg_data.py"
       - "scripts/lock_open_ecg_labels.py"
+      - "src/trust_icu/__init__.py"
       - "src/trust_icu/ecg_data.py"
       - "src/trust_icu/ecg_manifest.py"
       - "schemas/open_ecg_protocol.yaml"
