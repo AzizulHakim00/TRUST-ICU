@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Fetch only the public metadata and WFDB headers needed for the real TRUST-ECG pre-waveform audit.
+"""Fetch public metadata and WFDB headers needed for TRUST-ECG pre-waveform audits.
 
-This downloader intentionally never retrieves waveform samples. Challenge source filenames are
-learned from the live PhysioNet directory listings rather than inferred from a filename formula.
-Transient per-file network errors are isolated and retried in bounded batch recovery rounds so a
-single timeout cannot invalidate an otherwise complete header-only audit run.
+The v0.4 study develops directly on original PTB-XL and therefore does not require original
+PTB-XL headers merely to reverse-map Challenge record names. Challenge filenames are discovered
+from live PhysioNet listings. Waveform samples are never downloaded by this script.
 """
 
 from __future__ import annotations
@@ -32,7 +31,7 @@ EXPECTED_SOURCES = {
     "cpsc_2018": 6877,
     "cpsc_2018_extra": 3453,
 }
-_USER_AGENT = "TRUST-ECG-header-audit/0.3 (+https://github.com/AzizulHakim00/TRUST-ICU)"
+_USER_AGENT = "TRUST-ECG-header-audit/0.4 (+https://github.com/AzizulHakim00/TRUST-ICU)"
 _GROUP_RE = re.compile(r"^g\d+/$")
 _PTB_DIR_RE = re.compile(r"^\d{5}/$")
 _THREAD_LOCAL = threading.local()
@@ -164,8 +163,6 @@ def _download_jobs(
     workers: int,
     recovery_rounds: int,
 ) -> tuple[int, int, list[int]]:
-    """Download all jobs while isolating transient failures for bounded recovery rounds."""
-
     pending = list(jobs)
     completed: dict[tuple[str, Path], int] = {}
     failed_counts: list[int] = []
@@ -269,6 +266,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--recovery-rounds", type=int, default=4)
     parser.add_argument("--summary", default=None)
+    parser.add_argument(
+        "--skip-original-ptbxl-headers",
+        action="store_true",
+        help="v0.4 mode: do not fetch records500 headers because reverse crosswalk is retired.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -295,6 +297,7 @@ def main() -> int:
                     "ptbxl_version": "1.0.1",
                     "sources": EXPECTED_SOURCES,
                     "downloads_waveforms": False,
+                    "downloads_original_ptbxl_headers": not args.skip_original_ptbxl_headers,
                     "filename_discovery": "live_physionet_directory_listings",
                     "transport": "bounded_parallel_https_with_batch_failure_recovery",
                     "workers": args.workers,
@@ -311,26 +314,33 @@ def main() -> int:
     metadata_path.write_bytes(_read_url(PTBXL_METADATA_URL, attempts=5, timeout=45.0))
 
     challenge_jobs, discovered = _challenge_jobs(output_root, workers=args.workers)
-    original_jobs = _ptbxl_original_jobs(output_root, workers=args.workers)
     challenge_downloaded, challenge_bytes, challenge_failures = _download_jobs(
         challenge_jobs,
         workers=args.workers,
         recovery_rounds=args.recovery_rounds,
     )
-    original_downloaded, original_bytes, original_failures = _download_jobs(
-        original_jobs,
-        workers=args.workers,
-        recovery_rounds=args.recovery_rounds,
-    )
+
+    original_downloaded = 0
+    original_bytes = 0
+    original_failures: list[int] = []
+    if not args.skip_original_ptbxl_headers:
+        original_jobs = _ptbxl_original_jobs(output_root, workers=args.workers)
+        original_downloaded, original_bytes, original_failures = _download_jobs(
+            original_jobs,
+            workers=args.workers,
+            recovery_rounds=args.recovery_rounds,
+        )
 
     observed_challenge = Counter()
     for source in EXPECTED_SOURCES:
         observed_challenge[source] = len(list((output_root / "challenge" / source).rglob("*.hea")))
-    observed_original = len(list((output_root / "ptbxl_original" / "records500").rglob("*.hea")))
     if dict(observed_challenge) != EXPECTED_SOURCES:
         raise RuntimeError(f"Downloaded Challenge header counts are invalid: {dict(observed_challenge)}")
-    if observed_original != EXPECTED_SOURCES["ptb-xl"]:
+    observed_original = len(list((output_root / "ptbxl_original" / "records500").rglob("*.hea")))
+    if not args.skip_original_ptbxl_headers and observed_original != EXPECTED_SOURCES["ptb-xl"]:
         raise RuntimeError(f"Downloaded original PTB-XL header count is {observed_original}, expected 21837")
+    if args.skip_original_ptbxl_headers and observed_original != 0:
+        raise RuntimeError("v0.4 header-only fetch unexpectedly created original PTB-XL headers")
 
     summary = {
         "study": "TRUST-ECG",
@@ -347,6 +357,7 @@ def main() -> int:
         "challenge_header_files": challenge_downloaded,
         "challenge_header_bytes": challenge_bytes,
         "challenge_failed_counts_by_round": challenge_failures,
+        "ptbxl_original_headers_requested": not args.skip_original_ptbxl_headers,
         "ptbxl_original_header_files": original_downloaded,
         "ptbxl_original_header_bytes": original_bytes,
         "ptbxl_original_failed_counts_by_round": original_failures,
@@ -354,8 +365,9 @@ def main() -> int:
         "ready_for_header_audit": True,
         "challenge_root": str(output_root / "challenge"),
         "ptbxl_metadata": str(metadata_path),
-        "ptbxl_original_root": str(output_root / "ptbxl_original"),
     }
+    if not args.skip_original_ptbxl_headers:
+        summary["ptbxl_original_root"] = str(output_root / "ptbxl_original")
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2, sort_keys=True))
