@@ -3,6 +3,8 @@
 
 This downloader intentionally never retrieves waveform samples. Challenge source filenames are
 learned from the live PhysioNet directory listings rather than inferred from a filename formula.
+Transient per-file network errors are isolated and retried in bounded batch recovery rounds so a
+single timeout cannot invalidate an otherwise complete header-only audit run.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ EXPECTED_SOURCES = {
     "cpsc_2018": 6877,
     "cpsc_2018_extra": 3453,
 }
-_USER_AGENT = "TRUST-ECG-header-audit/0.2 (+https://github.com/AzizulHakim00/TRUST-ICU)"
+_USER_AGENT = "TRUST-ECG-header-audit/0.3 (+https://github.com/AzizulHakim00/TRUST-ICU)"
 _GROUP_RE = re.compile(r"^g\d+/$")
 _PTB_DIR_RE = re.compile(r"^\d{5}/$")
 _THREAD_LOCAL = threading.local()
@@ -54,6 +56,8 @@ def _connection(*, timeout: float) -> http.client.HTTPSConnection:
     if connection is None:
         connection = http.client.HTTPSConnection("physionet.org", timeout=timeout)
         _THREAD_LOCAL.physionet_connection = connection
+    else:
+        connection.timeout = timeout
     return connection
 
 
@@ -66,7 +70,7 @@ def _drop_connection() -> None:
             _THREAD_LOCAL.physionet_connection = None
 
 
-def _read_url(url: str, *, attempts: int = 5, timeout: float = 45.0) -> bytes:
+def _read_url(url: str, *, attempts: int = 3, timeout: float = 30.0) -> bytes:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https" or parsed.hostname != "physionet.org" or parsed.username or parsed.password:
         raise ValueError(f"TRUST-ECG header fetcher only permits https://physionet.org URLs: {url!r}")
@@ -89,13 +93,13 @@ def _read_url(url: str, *, attempts: int = 5, timeout: float = 45.0) -> bytes:
             _drop_connection()
             if attempt + 1 == attempts:
                 break
-            time.sleep(min(8.0, 0.75 * (2**attempt)))
+            time.sleep(0.75 * (attempt + 1))
     raise RuntimeError(f"Failed to fetch {url!r} after {attempts} attempts") from last_error
 
 
 def _directory_hrefs(url: str) -> list[str]:
     parser = _HrefParser()
-    parser.feed(_read_url(url).decode("utf-8", errors="replace"))
+    parser.feed(_read_url(url, attempts=5, timeout=45.0).decode("utf-8", errors="replace"))
     return parser.hrefs
 
 
@@ -154,10 +158,59 @@ def _download_one(job: tuple[str, Path]) -> tuple[str, int]:
     return str(destination), len(payload)
 
 
-def _download_jobs(jobs: list[tuple[str, Path]], *, workers: int) -> tuple[int, int]:
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(_download_one, jobs))
-    return len(results), sum(size for _, size in results)
+def _download_jobs(
+    jobs: list[tuple[str, Path]],
+    *,
+    workers: int,
+    recovery_rounds: int,
+) -> tuple[int, int, list[int]]:
+    """Download all jobs while isolating transient failures for bounded recovery rounds."""
+
+    pending = list(jobs)
+    completed: dict[tuple[str, Path], int] = {}
+    failed_counts: list[int] = []
+    last_errors: dict[tuple[str, Path], str] = {}
+
+    for round_index in range(recovery_rounds + 1):
+        if not pending:
+            break
+        failures: list[tuple[str, Path]] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_job = {executor.submit(_download_one, job): job for job in pending}
+            for future in concurrent.futures.as_completed(future_to_job):
+                job = future_to_job[future]
+                try:
+                    _, size = future.result()
+                except Exception as exc:  # noqa: BLE001 - aggregate retry boundary
+                    failures.append(job)
+                    last_errors[job] = f"{type(exc).__name__}: {exc}"
+                else:
+                    completed[job] = int(size)
+                    last_errors.pop(job, None)
+
+        failed_counts.append(len(failures))
+        if not failures:
+            pending = []
+            break
+        pending = failures
+        if round_index < recovery_rounds:
+            _drop_connection()
+            time.sleep(min(30.0, 5.0 * (round_index + 1)))
+
+    if pending:
+        sample = [
+            {"url": job[0], "error": last_errors.get(job, "unknown_error")}
+            for job in pending[:5]
+        ]
+        raise RuntimeError(
+            "Header download remained incomplete after bounded recovery rounds: "
+            f"failed={len(pending)}, sample={json.dumps(sample, sort_keys=True)}"
+        )
+    if len(completed) != len(jobs):
+        raise RuntimeError(
+            f"Header download accounting mismatch: completed={len(completed)}, expected={len(jobs)}"
+        )
+    return len(completed), sum(completed.values()), failed_counts
 
 
 def _challenge_jobs(output_root: Path, *, workers: int) -> tuple[list[tuple[str, Path]], dict[str, int]]:
@@ -213,7 +266,8 @@ def _ptbxl_original_jobs(output_root: Path, *, workers: int) -> list[tuple[str, 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-root", default="open_ecg_header_only_data")
-    parser.add_argument("--workers", type=int, default=12)
+    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--recovery-rounds", type=int, default=4)
     parser.add_argument("--summary", default=None)
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
@@ -223,6 +277,8 @@ def main() -> int:
     args = parse_args()
     if not 1 <= args.workers <= 32:
         raise SystemExit("--workers must be between 1 and 32")
+    if not 0 <= args.recovery_rounds <= 8:
+        raise SystemExit("--recovery-rounds must be between 0 and 8")
     output_root = Path(args.output_root).expanduser().resolve()
     summary_path = (
         Path(args.summary).expanduser().resolve()
@@ -240,8 +296,9 @@ def main() -> int:
                     "sources": EXPECTED_SOURCES,
                     "downloads_waveforms": False,
                     "filename_discovery": "live_physionet_directory_listings",
-                    "transport": "bounded_parallel_https_with_per_worker_connection_reuse",
+                    "transport": "bounded_parallel_https_with_batch_failure_recovery",
                     "workers": args.workers,
+                    "recovery_rounds": args.recovery_rounds,
                 },
                 indent=2,
                 sort_keys=True,
@@ -251,12 +308,20 @@ def main() -> int:
 
     output_root.mkdir(parents=True, exist_ok=True)
     metadata_path = output_root / "ptbxl_database.csv"
-    metadata_path.write_bytes(_read_url(PTBXL_METADATA_URL))
+    metadata_path.write_bytes(_read_url(PTBXL_METADATA_URL, attempts=5, timeout=45.0))
 
     challenge_jobs, discovered = _challenge_jobs(output_root, workers=args.workers)
     original_jobs = _ptbxl_original_jobs(output_root, workers=args.workers)
-    challenge_downloaded, challenge_bytes = _download_jobs(challenge_jobs, workers=args.workers)
-    original_downloaded, original_bytes = _download_jobs(original_jobs, workers=args.workers)
+    challenge_downloaded, challenge_bytes, challenge_failures = _download_jobs(
+        challenge_jobs,
+        workers=args.workers,
+        recovery_rounds=args.recovery_rounds,
+    )
+    original_downloaded, original_bytes, original_failures = _download_jobs(
+        original_jobs,
+        workers=args.workers,
+        recovery_rounds=args.recovery_rounds,
+    )
 
     observed_challenge = Counter()
     for source in EXPECTED_SOURCES:
@@ -273,14 +338,18 @@ def main() -> int:
         "challenge_version": "1.0.2",
         "ptbxl_version": "1.0.1",
         "filename_discovery": "live_physionet_directory_listings",
-        "transport": "bounded_parallel_https_with_per_worker_connection_reuse",
+        "transport": "bounded_parallel_https_with_batch_failure_recovery",
+        "workers": args.workers,
+        "recovery_rounds": args.recovery_rounds,
         "waveform_files_downloaded": 0,
         "challenge_discovered_counts": discovered,
         "challenge_downloaded_counts": dict(observed_challenge),
         "challenge_header_files": challenge_downloaded,
         "challenge_header_bytes": challenge_bytes,
+        "challenge_failed_counts_by_round": challenge_failures,
         "ptbxl_original_header_files": original_downloaded,
         "ptbxl_original_header_bytes": original_bytes,
+        "ptbxl_original_failed_counts_by_round": original_failures,
         "ptbxl_metadata_bytes": metadata_path.stat().st_size,
         "ready_for_header_audit": True,
         "challenge_root": str(output_root / "challenge"),
