@@ -18,6 +18,16 @@ _EXPECTED_EXTERNAL = {
 }
 _EXPECTED_LEADS = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"]
 _EXPECTED_BUDGETS = [0, 50, 100, 250, 500, 1000]
+_EXPECTED_LABEL_MAPPING = {
+    "59118001": ["CRBBB"],
+    "164889003": ["AFIB"],
+    "164909002": ["CLBBB"],
+    "270492004": ["1AVB"],
+    "284470004": ["PAC", "SVARR"],
+    "426783006": ["SR", "NORM"],
+    "427084000": ["STACH"],
+}
+_EXPECTED_LABEL_CONCORDANCE_SHA = "29813e879b6b53172661449a7543c300cbf7768fdc97cb218cc04b6ff9aa7fa1"
 _EXPECTED_LR_FEATURES = [
     "mean",
     "std",
@@ -56,10 +66,32 @@ def validate_open_ecg_protocol(path: str | Path) -> dict[str, Any]:
     protocol_path = Path(path).resolve()
     protocol = load_open_ecg_protocol(protocol_path)
 
-    if str(protocol.get("version")) != "0.3.0":
-        raise ValueError("Open ECG protocol version must remain pinned to 0.3.0 for this stage.")
-    if protocol.get("status") != "prospective_open_data_pivot":
-        raise ValueError("Open ECG protocol must remain prospective before real performance inspection.")
+    if str(protocol.get("version")) != "0.4.0":
+        raise ValueError("Open ECG protocol version must remain pinned to 0.4.0 for this stage.")
+    if protocol.get("status") != "prospective_open_data_pivot_amended_before_waveform_modeling":
+        raise ValueError("Open ECG amendment must remain explicitly pre-waveform and prospective.")
+
+    amendment = protocol.get("prospective_amendment")
+    if not isinstance(amendment, dict):
+        raise ValueError("Prospective amendment provenance is required.")
+    if amendment.get("made_before_any_waveform_model_performance_inspection") is not True:
+        raise ValueError("The direct-PTB-XL amendment must predate waveform model performance inspection.")
+    deprecated = set(amendment.get("deprecated_crosswalk_methods", []))
+    if deprecated != {"numeric_rank_pairing", "all_12_wfdb_checksum_signature_join"}:
+        raise ValueError("Failed PTB-XL reverse-crosswalk methods must remain documented as deprecated.")
+    concordance = amendment.get("original_ptbxl_label_concordance")
+    if not isinstance(concordance, dict):
+        raise ValueError("Original PTB-XL label-concordance evidence is required.")
+    if concordance.get("required") is not True:
+        raise ValueError("Original PTB-XL label concordance must remain mandatory.")
+    if str(concordance.get("audit_version")) != "0.2.0":
+        raise ValueError("PTB-XL label-concordance audit version must remain pinned to 0.2.0.")
+    if concordance.get("real_audit_sha256") != _EXPECTED_LABEL_CONCORDANCE_SHA:
+        raise ValueError("PTB-XL real label-concordance evidence hash cannot drift.")
+    if concordance.get("count_semantics") != "union_of_scp_key_presence_per_record":
+        raise ValueError("PTB-XL development labels must use SCP union-by-key-presence semantics.")
+    if concordance.get("require_all_seven_labels_exactly_concordant") is not True:
+        raise ValueError("All seven frozen labels must remain exactly concordant before modeling.")
 
     interpretation = protocol.get("interpretation_scope")
     if not isinstance(interpretation, dict):
@@ -74,35 +106,48 @@ def validate_open_ecg_protocol(path: str | Path) -> dict[str, Any]:
 
     resource = protocol.get("resource")
     if not isinstance(resource, dict):
-        raise ValueError("Resource block is required.")
+        raise ValueError("Challenge external resource block is required.")
     if resource.get("name") != "PhysioNet/Computing in Cardiology Challenge 2020":
-        raise ValueError("Unexpected ECG resource.")
+        raise ValueError("Unexpected external ECG resource.")
     if str(resource.get("version")) != "1.0.2":
         raise ValueError("Challenge 2020 version must remain pinned to 1.0.2.")
     if resource.get("access_policy") != "open" or resource.get("license") != "CC-BY-4.0":
-        raise ValueError("This pivot must remain open-data under the pinned CC-BY-4.0 release.")
+        raise ValueError("External resource must remain open CC-BY-4.0 data.")
     hidden = resource.get("hidden_challenge_test_set")
     if not isinstance(hidden, dict) or hidden.get("use") is not False:
         raise ValueError("The unreleased Challenge test set must not be used.")
+
+    development_resource = protocol.get("development_resource")
+    if not isinstance(development_resource, dict):
+        raise ValueError("Original PTB-XL development resource block is required.")
+    if development_resource.get("name") != "PTB-XL" or str(development_resource.get("version")) != "1.0.1":
+        raise ValueError("Development data must remain original PTB-XL v1.0.1.")
+    if development_resource.get("access_policy") != "open" or development_resource.get("license") != "CC-BY-4.0":
+        raise ValueError("Original PTB-XL development data must remain open CC-BY-4.0 data.")
 
     sources = protocol.get("sources")
     if not isinstance(sources, dict):
         raise ValueError("Source roles are required.")
     development = sources.get("development")
     if not isinstance(development, dict) or set(development) != {"ptb_xl"}:
-        raise ValueError("PTB-XL must be the sole development source in Phase 0.")
+        raise ValueError("Original PTB-XL must be the sole development source in Phase 0.")
     ptb_xl = development["ptb_xl"]
     if ptb_xl.get("records") != 21837 or str(ptb_xl.get("source_version")) != "1.0.1":
         raise ValueError("PTB-XL must remain pinned to v1.0.1 with 21,837 records.")
+    if ptb_xl.get("input_release") != "original_ptbxl_v1_0_1":
+        raise ValueError("Development must use original PTB-XL records directly.")
     if ptb_xl.get("patientwise_split_required") is not True:
         raise ValueError("PTB-XL patient-wise splitting is mandatory.")
-    crosswalk = ptb_xl.get("challenge_to_original_crosswalk")
-    if not isinstance(crosswalk, dict):
-        raise ValueError("PTB-XL Challenge/original crosswalk rules are required.")
-    if crosswalk.get("required") is not True or crosswalk.get("require_every_pair_verified") is not True:
-        raise ValueError("Every Challenge/PTB-XL pair must be crosswalk-verified.")
-    if crosswalk.get("prohibit_unverified_filename_formula") is not True:
-        raise ValueError("An unverified PTB-XL filename formula must never be trusted.")
+    if ptb_xl.get("official_ptb_xl_metadata_required") is not True:
+        raise ValueError("Official PTB-XL metadata is mandatory for development.")
+    if ptb_xl.get("label_count_semantics") != "union_of_scp_key_presence_per_record":
+        raise ValueError("PTB-XL development label semantics cannot drift.")
+    if ptb_xl.get("challenge_ptbxl_used_as_model_input") is not False:
+        raise ValueError("Challenge-renamed PTB-XL must never be used as model input.")
+    if ptb_xl.get("require_original_ptbxl_label_concordance_audit") is not True:
+        raise ValueError("Original PTB-XL label-concordance audit must remain required.")
+    if ptb_xl.get("frozen_label_mapping") != _EXPECTED_LABEL_MAPPING:
+        raise ValueError("Frozen seven-label PTB-XL SCP mapping cannot drift after concordance.")
 
     external = sources.get("external_primary")
     if not isinstance(external, dict) or set(external) != set(_EXPECTED_EXTERNAL):
@@ -117,6 +162,18 @@ def validate_open_ecg_protocol(path: str | Path) -> dict[str, Any]:
     labels = task.get("labels")
     if not isinstance(labels, dict):
         raise ValueError("Label harmonization rules are required.")
+    if labels.get("development_source") != "original_ptbxl_scp_codes":
+        raise ValueError("Development labels must come from original PTB-XL SCP codes.")
+    if labels.get("external_source") != "challenge_header_Dx_SNOMED_CT_codes":
+        raise ValueError("External labels must remain Challenge header SNOMED codes.")
+    if labels.get("count_semantics") != "union_of_scp_key_presence_per_record":
+        raise ValueError("Development label count semantics cannot drift.")
+    canonical_labels = labels.get("canonical_labels")
+    if not isinstance(canonical_labels, dict) or set(canonical_labels) != set(_EXPECTED_LABEL_MAPPING):
+        raise ValueError("Exactly seven canonical labels must remain frozen.")
+    for code, expected_scp in _EXPECTED_LABEL_MAPPING.items():
+        if canonical_labels[code].get("ptbxl_scp_codes") != expected_scp:
+            raise ValueError(f"Canonical PTB-XL mapping drift detected for {code}.")
     if labels.get("lock_before_waveform_model_training") is not True:
         raise ValueError("Label manifest must be locked before waveform model training.")
     if labels.get("prohibit_posthoc_label_addition") is not True:
@@ -143,6 +200,8 @@ def validate_open_ecg_protocol(path: str | Path) -> dict[str, Any]:
     validation = protocol.get("internal_validation")
     if not isinstance(validation, dict):
         raise ValueError("Internal validation contract is required.")
+    if validation.get("development_source") != "original_ptb_xl_v1_0_1":
+        raise ValueError("Internal validation must use original PTB-XL v1.0.1.")
     if validation.get("model_fit_folds") != [1, 2, 3, 4, 5, 6, 7]:
         raise ValueError("PTB-XL model-fitting folds must remain 1-7.")
     if validation.get("optimization_validation_fold") != 8:
@@ -222,8 +281,12 @@ def validate_open_ecg_protocol(path: str | Path) -> dict[str, Any]:
         raise ValueError("Only the predeclared primary ResNet may determine the Phase 0 gate.")
     if go_no_go.get("external_partition_used") != "certification":
         raise ValueError("Phase 0 must use only the certification partition.")
-    if go_no_go.get("require_ptbxl_crosswalk_audit") is not True:
-        raise ValueError("Phase 0 must require the PTB-XL crosswalk audit.")
+    if go_no_go.get("require_original_ptbxl_label_concordance_audit") is not True:
+        raise ValueError("Phase 0 must require original PTB-XL label concordance.")
+    if go_no_go.get("require_ptbxl_crosswalk_audit") is not False:
+        raise ValueError("Obsolete Challenge/PTB-XL crosswalk must remain disabled.")
+    if go_no_go.get("prohibit_challenge_ptbxl_as_model_input") is not True:
+        raise ValueError("Challenge PTB-XL must remain prohibited as model input.")
     if go_no_go.get("discrimination_viability", {}).get("minimum_pr_auc_to_prevalence_ratio") != 2.0:
         raise ValueError("Discrimination viability threshold cannot drift.")
     envelope = go_no_go.get("calibration_envelope")
@@ -275,8 +338,11 @@ def validate_open_ecg_protocol(path: str | Path) -> dict[str, Any]:
         "study_name": str(protocol.get("study_name")),
         "version": str(protocol.get("version")),
         "protocol_sha256": _sha256_file(protocol_path),
-        "development_source": "ptb_xl",
+        "development_source": "original_ptb_xl_v1_0_1",
         "development_records": 21837,
+        "development_label_semantics": "union_of_scp_key_presence_per_record",
+        "label_concordance_audit_sha256": _EXPECTED_LABEL_CONCORDANCE_SHA,
+        "challenge_ptbxl_model_input": False,
         "model_fit_folds": [1, 2, 3, 4, 5, 6, 7],
         "optimization_validation_fold": 8,
         "calibration_fold": 9,
