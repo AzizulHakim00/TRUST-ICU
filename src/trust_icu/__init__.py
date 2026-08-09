@@ -67,16 +67,15 @@ from trust_icu.ecg_manifest import (
     load_and_verify_ptbxl_label_concordance_audit,
     write_label_manifest,
 )
-from trust_icu.ecg_phase0 import (
-    EcgPhase0Report,
-    MultiLabelMetrics,
+from trust_icu.ecg_phase0 import EcgPhase0Report, MultiLabelMetrics
+from trust_icu.ecg_phase0_v04 import (
+    build_phase0_dry_run_plan as build_open_ecg_phase0_dry_run_plan,
+)
+from trust_icu.ecg_phase0_v04 import (
     execute_logistic_reference_phase0,
     load_and_verify_model_index,
     load_and_verify_normalization_stats,
     write_phase0_report,
-)
-from trust_icu.ecg_phase0 import (
-    build_phase0_dry_run_plan as build_open_ecg_phase0_dry_run_plan,
 )
 from trust_icu.ecg_protocol import load_open_ecg_protocol, validate_open_ecg_protocol
 from trust_icu.ecg_ptbxl_labels import (
