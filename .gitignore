@@ -44,6 +44,8 @@ outcome_lock_report.json
 trust_icu_locked_runtime/
 
 # Open ECG local data and pre-model manifests
+open_ecg_header_only_data/
+header_download_summary.json
 open_ecg_header_audit.json
 open_ecg_label_manifest.json
 open_ecg_waveform_audit.json
