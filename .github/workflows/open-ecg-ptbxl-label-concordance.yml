@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/open-ecg-ptbxl-label-concordance.yml"
       - "scripts/audit_original_ptbxl_labels.py"
+      - "scripts/diagnose_ptbxl_scp_harmonization.py"
       - "src/trust_icu/ecg_ptbxl_labels.py"
 
 permissions:
@@ -40,7 +41,11 @@ jobs:
           curl --fail --location --retry 5 --retry-all-errors \
             --output /tmp/trust_ecg_ptbxl/ptbxl_database.csv \
             https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output /tmp/trust_ecg_ptbxl/scp_statements.csv \
+            https://physionet.org/files/ptb-xl/1.0.1/scp_statements.csv
           test -s /tmp/trust_ecg_ptbxl/ptbxl_database.csv
+          test -s /tmp/trust_ecg_ptbxl/scp_statements.csv
           echo "Metadata bytes: $(wc -c < /tmp/trust_ecg_ptbxl/ptbxl_database.csv)"
 
       - name: Run real aggregate label concordance gate
@@ -50,6 +55,18 @@ jobs:
             --ptbxl-metadata /tmp/trust_ecg_ptbxl/ptbxl_database.csv \
             --output /tmp/trust_ecg_ptbxl/ptbxl_label_concordance_audit.json \
             --require-ready
+
+      - name: Diagnose unresolved SCP harmonization
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/trust_ecg_ptbxl/ptbxl_database.csv ] && \
+             [ -f /tmp/trust_ecg_ptbxl/scp_statements.csv ]; then
+            python scripts/diagnose_ptbxl_scp_harmonization.py \
+              --ptbxl-metadata /tmp/trust_ecg_ptbxl/ptbxl_database.csv \
+              --scp-statements /tmp/trust_ecg_ptbxl/scp_statements.csv \
+              --output /tmp/trust_ecg_ptbxl/ptbxl_scp_harmonization_diagnostic.json
+          fi
 
       - name: Record aggregate evidence
         if: always()
@@ -61,6 +78,7 @@ jobs:
 
           out = Path(os.environ['GITHUB_STEP_SUMMARY'])
           audit_path = Path('/tmp/trust_ecg_ptbxl/ptbxl_label_concordance_audit.json')
+          diagnostic_path = Path('/tmp/trust_ecg_ptbxl/ptbxl_scp_harmonization_diagnostic.json')
           lines = ['# TRUST-ECG original PTB-XL label concordance', '']
           if audit_path.is_file():
               audit = json.loads(audit_path.read_text())
@@ -83,7 +101,14 @@ jobs:
                       f"{row['challenge_positive_count']} | {row['original_ptbxl_key_present_count']} | "
                       f"{row['original_ptbxl_positive_likelihood_count']} |"
                   )
-          else:
-              lines.append('- Audit file was not produced.')
+          if diagnostic_path.is_file():
+              diag = json.loads(diagnostic_path.read_text())
+              lines += ['', '## Unresolved SCP exact-union candidates']
+              for name, item in diag['targets'].items():
+                  lines.append(
+                      f"- {name}: base `{item['base_scp_code']}`={item['base_count']}, "
+                      f"target={item['target_challenge_count']}, candidates="
+                      f"`{item['single_code_exact_union_candidates']}`"
+                  )
           out.write_text('\n'.join(lines) + '\n')
           PY
