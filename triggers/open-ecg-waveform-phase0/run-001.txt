@@ -1,0 +1,17 @@
+TRUST-ECG protocol v0.4.0 real waveform Phase 0 trigger.
+
+Authorized scope:
+- rebuild aggregate Challenge label-support evidence;
+- verify original PTB-XL label concordance;
+- lock the seven-label two-source manifest;
+- download original PTB-XL v1.0.1 records500 plus Georgia/CPSC external waveforms;
+- run waveform and normalization integrity audits;
+- build the source-aware model index;
+- run the fixed Logistic Regression reference only.
+
+Explicitly prohibited in this trigger:
+- Challenge-renamed PTB-XL as model input;
+- target-domain retraining or normalization refit;
+- recovery-pool access during Phase 0;
+- ResNet performance claims;
+- artifact/waveform/prediction upload.
