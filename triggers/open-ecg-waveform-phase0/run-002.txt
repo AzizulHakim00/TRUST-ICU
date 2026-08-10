@@ -1,0 +1,21 @@
+TRUST-ECG v0.4 real waveform Phase 0 rerun
+Date: 2026-08-10
+Reason: rerun after a pre-model technical integrity fix for corpus-hash ordering.
+
+Scientific state remains unchanged:
+- original PTB-XL v1.0.1 development source
+- Challenge-renamed PTB-XL excluded from model input
+- locked seven-label task unchanged
+- PTB folds 1-7 fit, 8 optimization, 9 calibration, 10 untouched internal test
+- external 60% certification / 40% untouched recovery split unchanged
+- Logistic remains reference-only and primary-gate-ineligible
+- fixed ResNet remains the primary model
+- Phase 1 policy and implementation lock remain unchanged
+
+Technical correction validated before this rerun:
+- nested Challenge directories g1/g2/.../g10 are now hashed in the same canonical numeric-record order used by the waveform audit
+- byte-level mutation detection remains enforced
+- TRUST-ECG integrity CI passed at 53dcc4739de896d4c345b21118c3420ade49c822
+- full Phase 0 CI passed at 53dcc4739de896d4c345b21118c3420ade49c822
+
+No performance result existed before this correction, so the change is not result-driven.
