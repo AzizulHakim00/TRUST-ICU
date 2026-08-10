@@ -100,8 +100,24 @@ def _file_sha256(path: Path) -> str:
 
 
 def _hash_files(source_root: Path, paths: list[Path]) -> str:
+    """Hash a source corpus in the same canonical record order as the waveform audit.
+
+    Challenge sources are stored in nested ``g1/``, ``g2/``, ... directories. A plain
+    lexicographic path sort therefore places ``g10`` before ``g2`` and can produce a
+    different digest from the waveform audit even when every file is byte-identical.
+    Ordering by the terminal numeric record ID (then relative path as a deterministic
+    tie-breaker) matches the audit traversal while preserving byte-level tamper detection.
+    """
+
     digest = hashlib.sha256()
-    for path in sorted(paths, key=lambda item: item.relative_to(source_root).as_posix()):
+    ordered_paths = sorted(
+        paths,
+        key=lambda item: (
+            _numeric_record_id(item.stem),
+            item.relative_to(source_root).as_posix(),
+        ),
+    )
+    for path in ordered_paths:
         if not path.is_file():
             raise FileNotFoundError(f"Missing corpus file: {path}")
         relative = path.relative_to(source_root).as_posix()
