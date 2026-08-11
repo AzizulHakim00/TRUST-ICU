@@ -1,0 +1,7 @@
+TRUST-ECG v0.4 split runtime launch
+
+Purpose: execute the prospectively frozen fixed ResNet using separate verified-data preparation, primary ResNet, and conditional Phase 1 jobs so each stage receives its own GitHub Actions job window.
+
+Scientific implementation changed: false
+Source activation: triggers/open-ecg-resnet-phase0/activation.json
+Previous cancelled workflow run: 31418319575
