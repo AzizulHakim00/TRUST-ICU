@@ -1,0 +1,307 @@
+name: TRUST-ECG resumable ResNet segment
+
+on:
+  workflow_call:
+    inputs:
+      segment_number:
+        required: true
+        type: string
+      incoming_complete:
+        required: true
+        type: string
+      incoming_cache_key:
+        required: false
+        type: string
+        default: ""
+      incoming_result_cache_key:
+        required: false
+        type: string
+        default: ""
+      expected_head_sha:
+        required: true
+        type: string
+      launch_token:
+        required: true
+        type: string
+    outputs:
+      complete:
+        value: ${{ jobs.segment.outputs.complete }}
+      next_cache_key:
+        value: ${{ jobs.segment.outputs.next_cache_key }}
+      result_cache_key:
+        value: ${{ jobs.segment.outputs.result_cache_key }}
+      phase:
+        value: ${{ jobs.segment.outputs.phase }}
+      best_epoch:
+        value: ${{ jobs.segment.outputs.best_epoch }}
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  ACTIVATION_PATH: triggers/open-ecg-resnet-phase0/activation.json
+  RUNTIME_ROOT: ${{ github.workspace }}/.trust_ecg_runtime
+  DATA_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/primary
+  EVIDENCE_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/evidence
+  WORK_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/work
+  RESULTS_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/results
+  RESUME_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/resume
+  PHASE1_LOCK_SHA: 4b5189d693ddd9ede6715cc3210b9157972144e2
+
+jobs:
+  segment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      complete: ${{ steps.publish.outputs.complete }}
+      next_cache_key: ${{ steps.publish.outputs.next_cache_key }}
+      result_cache_key: ${{ steps.publish.outputs.result_cache_key }}
+      phase: ${{ steps.publish.outputs.phase }}
+      best_epoch: ${{ steps.publish.outputs.best_epoch }}
+
+    steps:
+      - name: Pass through an already completed primary run
+        if: inputs.incoming_complete == 'true'
+        run: echo "Primary ResNet already completed; segment ${{ inputs.segment_number }} is a no-op."
+
+      - uses: actions/checkout@v4
+        if: inputs.incoming_complete != 'true'
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.expected_head_sha }}
+
+      - uses: actions/setup-python@v5
+        if: inputs.incoming_complete != 'true'
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Validate immutable execution state and derive data key
+        if: inputs.incoming_complete != 'true'
+        id: activation
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "${{ inputs.expected_head_sha }}"
+          python scripts/validate_open_ecg_resnet_activation.py --activation "$ACTIVATION_PATH"
+          LOGISTIC_SHA=$(python -c 'import json,os; print(json.load(open(os.environ["ACTIVATION_PATH"]))["logistic_head_sha"])')
+          phase0_protected=(
+            pyproject.toml schemas/open_ecg_protocol.yaml
+            src/trust_icu/ecg_baseline.py src/trust_icu/ecg_index.py src/trust_icu/ecg_manifest.py
+            src/trust_icu/ecg_phase0.py src/trust_icu/ecg_phase0_v04.py
+            src/trust_icu/ecg_deep_phase0.py src/trust_icu/ecg_deep_phase0_v04.py
+            src/trust_icu/ecg_resnet.py src/trust_icu/ecg_signal.py src/trust_icu/ecg_waveform.py
+            scripts/audit_original_ptbxl_labels.py scripts/build_open_ecg_model_index.py
+            scripts/fetch_open_ecg_headers.py scripts/fetch_open_ecg_primary_waveforms_v04.py
+            scripts/lock_open_ecg_labels.py scripts/prepare_open_ecg_data.py
+            scripts/prepare_open_ecg_waveforms.py scripts/run_open_ecg_phase0.py
+          )
+          git diff --quiet "$LOGISTIC_SHA" "$GITHUB_SHA" -- "${phase0_protected[@]}" || {
+            echo "Frozen Phase 0 implementation drift detected." >&2
+            git diff --name-only "$LOGISTIC_SHA" "$GITHUB_SHA" -- "${phase0_protected[@]}" >&2
+            exit 1
+          }
+          phase1_protected=(src/trust_icu/ecg_phase1.py scripts/run_open_ecg_phase1.py)
+          git diff --quiet "$PHASE1_LOCK_SHA" "$GITHUB_SHA" -- "${phase1_protected[@]}" || {
+            echo "Frozen Phase 1 implementation drift detected." >&2
+            exit 1
+          }
+          python - "$ACTIVATION_PATH" "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          from pathlib import Path
+          p = json.loads(Path(sys.argv[1]).read_text())
+          key = (
+              "trust-ecg-v04-verified-data-"
+              + p["label_manifest_sha256"][:16] + "-"
+              + p["waveform_audit_sha256"][:16] + "-"
+              + p["model_index_audit_sha256"][:16]
+          )
+          with Path(sys.argv[2]).open("a", encoding="utf-8") as handle:
+              handle.write(f"data_cache_key={key}\n")
+          PY
+
+      - name: Restore exact verified data
+        if: inputs.incoming_complete != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .trust_ecg_runtime/primary
+            .trust_ecg_runtime/evidence
+            .trust_ecg_runtime/work
+          key: ${{ steps.activation.outputs.data_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Restore incoming resumable state
+        if: inputs.incoming_complete != 'true' && inputs.incoming_cache_key != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/resume
+          key: ${{ inputs.incoming_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Install CPU-only fixed-ResNet runtime
+        if: inputs.incoming_complete != 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0"
+          pip install -e ".[ecg-waveform]"
+          python - <<'PY'
+          import torch
+          print("torch", torch.__version__)
+          print("cuda_available", torch.cuda.is_available())
+          if torch.cuda.is_available():
+              raise SystemExit("Resumable hosted execution must remain CPU-only.")
+          PY
+
+      - name: Verify cached evidence identity
+        if: inputs.incoming_complete != 'true'
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          activation = json.loads(Path(os.environ["ACTIVATION_PATH"]).read_text())
+          evidence = Path(os.environ["EVIDENCE_ROOT"])
+          work = Path(os.environ["WORK_ROOT"])
+          manifest = json.loads((evidence / "open_ecg_label_manifest.json").read_text())
+          waveform = json.loads((work / "waveform/open_ecg_waveform_audit.json").read_text())
+          index = json.loads((work / "model_index/open_ecg_model_index_audit.json").read_text())
+          observed = {
+              "label_manifest_sha256": manifest["manifest_sha256"],
+              "waveform_audit_sha256": waveform["audit_sha256"],
+              "normalization_stats_sha256": waveform["normalization_stats_sha256"],
+              "ptbxl_assignment_sha256": waveform["ptbxl_assignment_sha256"],
+              "model_index_sha256": index["index_sha256"],
+              "model_index_audit_sha256": index["audit_sha256"],
+              "label_codes": index["label_codes"],
+          }
+          for key, value in observed.items():
+              if activation[key] != value:
+                  raise SystemExit(f"Cached-state mismatch for {key}: {value!r}")
+          if index.get("challenge_ptbxl_model_input") is not False:
+              raise SystemExit("Challenge-renamed PTB-XL unexpectedly entered model input.")
+          print("Verified immutable cached evidence identity.")
+          PY
+
+      - name: Run resumable fixed ResNet segment
+        if: inputs.incoming_complete != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RESUME_ROOT" "$RESULTS_ROOT"
+          python scripts/run_open_ecg_resnet_resumable.py \
+            --primary-data-root "$DATA_ROOT" \
+            --model-index "$WORK_ROOT/model_index/open_ecg_model_index.csv" \
+            --model-index-audit "$WORK_ROOT/model_index/open_ecg_model_index_audit.json" \
+            --label-manifest "$EVIDENCE_ROOT/open_ecg_label_manifest.json" \
+            --waveform-audit "$WORK_ROOT/waveform/open_ecg_waveform_audit.json" \
+            --normalization-stats "$WORK_ROOT/waveform/open_ecg_normalization_stats.json" \
+            --output-root "$RESULTS_ROOT" \
+            --resume-checkpoint "$RESUME_ROOT/resnet_resume_state.pt" \
+            --status-output "$RESUME_ROOT/resnet_resume_status.json" \
+            --segment-seconds 14400 --device cpu --num-workers 0
+
+      - name: Derive continuation or completed-result key
+        if: inputs.incoming_complete != 'true'
+        id: derive
+        run: |
+          python - "$RESUME_ROOT/resnet_resume_status.json" "$GITHUB_OUTPUT" <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          status = json.loads(Path(sys.argv[1]).read_text())
+          segment = str(os.environ["SEGMENT_NUMBER"]).zfill(2)
+          token = os.environ["LAUNCH_TOKEN"]
+          if status["complete"]:
+              result = (
+                  "trust-ecg-v04-primary-result-" + status["model_sha256"][:20]
+                  + "-" + status["report_sha256"][:20]
+              )
+              next_key = ""
+          else:
+              result = ""
+              next_key = (
+                  "trust-ecg-v04-resume-" + token + "-s" + segment + "-"
+                  + status["resume_checkpoint_sha256"][:20]
+              )
+          with Path(sys.argv[2]).open("a", encoding="utf-8") as handle:
+              handle.write(f"complete={str(bool(status['complete'])).lower()}\n")
+              handle.write(f"next_cache_key={next_key}\n")
+              handle.write(f"result_cache_key={result}\n")
+              handle.write(f"phase={status['phase']}\n")
+              handle.write(f"best_epoch={status['best_epoch']}\n")
+          PY
+        env:
+          SEGMENT_NUMBER: ${{ inputs.segment_number }}
+          LAUNCH_TOKEN: ${{ inputs.launch_token }}
+
+      - name: Save next resumable state
+        if: inputs.incoming_complete != 'true' && steps.derive.outputs.complete != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .trust_ecg_runtime/resume
+          key: ${{ steps.derive.outputs.next_cache_key }}
+
+      - name: Save completed primary state for Phase 1
+        if: inputs.incoming_complete != 'true' && steps.derive.outputs.complete == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .trust_ecg_runtime/results
+          key: ${{ steps.derive.outputs.result_cache_key }}
+
+      - name: Delete superseded incoming resume cache
+        if: inputs.incoming_complete != 'true' && inputs.incoming_cache_key != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD_CACHE_KEY: ${{ inputs.incoming_cache_key }}
+        run: |
+          set +e
+          encoded=$(python - <<'PY'
+          import os
+          from urllib.parse import quote
+          print(quote(os.environ["OLD_CACHE_KEY"], safe=""))
+          PY
+          )
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/caches?key=${encoded}&ref=refs/heads/${GITHUB_REF_NAME}"
+          exit 0
+
+      - name: Publish reusable-workflow outputs
+        id: publish
+        run: |
+          if [ "${{ inputs.incoming_complete }}" = "true" ]; then
+            echo "complete=true" >> "$GITHUB_OUTPUT"
+            echo "next_cache_key=${{ inputs.incoming_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "result_cache_key=${{ inputs.incoming_result_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "phase=complete" >> "$GITHUB_OUTPUT"
+            echo "best_epoch=" >> "$GITHUB_OUTPUT"
+          else
+            echo "complete=${{ steps.derive.outputs.complete }}" >> "$GITHUB_OUTPUT"
+            echo "next_cache_key=${{ steps.derive.outputs.next_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "result_cache_key=${{ steps.derive.outputs.result_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "phase=${{ steps.derive.outputs.phase }}" >> "$GITHUB_OUTPUT"
+            echo "best_epoch=${{ steps.derive.outputs.best_epoch }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record aggregate execution progress
+        if: inputs.incoming_complete != 'true'
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          status = json.loads((Path(os.environ["RESUME_ROOT"]) / "resnet_resume_status.json").read_text())
+          lines = [
+              "# TRUST-ECG resumable primary segment",
+              "",
+              f"- Segment: **{os.environ['SEGMENT_NUMBER']}**",
+              f"- Complete: **{status['complete']}**",
+              f"- Phase: `{status['phase']}`",
+              f"- Epoch: **{status['epoch']}**",
+              f"- Batch/sample cursor: **{status['batch_cursor']}**",
+              f"- Epochs completed: **{status['epochs_completed']}**",
+              f"- Best epoch: **{status['best_epoch']}**",
+              f"- Best fold-8 macro PR-AUC: **{status['best_fold8_macro_pr_auc']}**",
+              "",
+              "No record-level predictions or waveform data are published.",
+          ]
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines) + "\n")
+          PY
+        env:
+          SEGMENT_NUMBER: ${{ inputs.segment_number }}
