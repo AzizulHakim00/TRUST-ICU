@@ -6,8 +6,9 @@ import csv
 import hashlib
 import json
 import math
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
