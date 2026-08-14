@@ -1,0 +1,323 @@
+name: Real TRUST-ECG v0.4 Resumable Fixed ResNet
+
+on:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - "triggers/open-ecg-resnet-resumable/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: trust-ecg-v04-resumable-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  segment_01:
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "1"
+      incoming_complete: "false"
+      incoming_cache_key: ""
+      incoming_result_cache_key: ""
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_02:
+    needs: segment_01
+    if: ${{ always() && needs.segment_01.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "2"
+      incoming_complete: ${{ needs.segment_01.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_01.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_01.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_03:
+    needs: segment_02
+    if: ${{ always() && needs.segment_02.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "3"
+      incoming_complete: ${{ needs.segment_02.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_02.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_02.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_04:
+    needs: segment_03
+    if: ${{ always() && needs.segment_03.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "4"
+      incoming_complete: ${{ needs.segment_03.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_03.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_03.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_05:
+    needs: segment_04
+    if: ${{ always() && needs.segment_04.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "5"
+      incoming_complete: ${{ needs.segment_04.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_04.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_04.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_06:
+    needs: segment_05
+    if: ${{ always() && needs.segment_05.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "6"
+      incoming_complete: ${{ needs.segment_05.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_05.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_05.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_07:
+    needs: segment_06
+    if: ${{ always() && needs.segment_06.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "7"
+      incoming_complete: ${{ needs.segment_06.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_06.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_06.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_08:
+    needs: segment_07
+    if: ${{ always() && needs.segment_07.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "8"
+      incoming_complete: ${{ needs.segment_07.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_07.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_07.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_09:
+    needs: segment_08
+    if: ${{ always() && needs.segment_08.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "9"
+      incoming_complete: ${{ needs.segment_08.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_08.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_08.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_10:
+    needs: segment_09
+    if: ${{ always() && needs.segment_09.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "10"
+      incoming_complete: ${{ needs.segment_09.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_09.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_09.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_11:
+    needs: segment_10
+    if: ${{ always() && needs.segment_10.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "11"
+      incoming_complete: ${{ needs.segment_10.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_10.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_10.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_12:
+    needs: segment_11
+    if: ${{ always() && needs.segment_11.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "12"
+      incoming_complete: ${{ needs.segment_11.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_11.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_11.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_13:
+    needs: segment_12
+    if: ${{ always() && needs.segment_12.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "13"
+      incoming_complete: ${{ needs.segment_12.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_12.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_12.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_14:
+    needs: segment_13
+    if: ${{ always() && needs.segment_13.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "14"
+      incoming_complete: ${{ needs.segment_13.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_13.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_13.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_15:
+    needs: segment_14
+    if: ${{ always() && needs.segment_14.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "15"
+      incoming_complete: ${{ needs.segment_14.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_14.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_14.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_16:
+    needs: segment_15
+    if: ${{ always() && needs.segment_15.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "16"
+      incoming_complete: ${{ needs.segment_15.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_15.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_15.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_17:
+    needs: segment_16
+    if: ${{ always() && needs.segment_16.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "17"
+      incoming_complete: ${{ needs.segment_16.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_16.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_16.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_18:
+    needs: segment_17
+    if: ${{ always() && needs.segment_17.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "18"
+      incoming_complete: ${{ needs.segment_17.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_17.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_17.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_19:
+    needs: segment_18
+    if: ${{ always() && needs.segment_18.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "19"
+      incoming_complete: ${{ needs.segment_18.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_18.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_18.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_20:
+    needs: segment_19
+    if: ${{ always() && needs.segment_19.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "20"
+      incoming_complete: ${{ needs.segment_19.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_19.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_19.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_21:
+    needs: segment_20
+    if: ${{ always() && needs.segment_20.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "21"
+      incoming_complete: ${{ needs.segment_20.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_20.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_20.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_22:
+    needs: segment_21
+    if: ${{ always() && needs.segment_21.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "22"
+      incoming_complete: ${{ needs.segment_21.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_21.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_21.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_23:
+    needs: segment_22
+    if: ${{ always() && needs.segment_22.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "23"
+      incoming_complete: ${{ needs.segment_22.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_22.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_22.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_24:
+    needs: segment_23
+    if: ${{ always() && needs.segment_23.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-resume-segment.yml
+    with:
+      segment_number: "24"
+      incoming_complete: ${{ needs.segment_23.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_23.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_23.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  conditional_phase1:
+    needs: segment_24
+    if: ${{ needs.segment_24.outputs.complete == 'true' }}
+    uses: ./.github/workflows/_open-ecg-resnet-phase1-final.yml
+    with:
+      result_cache_key: ${{ needs.segment_24.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  primary_incomplete_after_segment_limit:
+    needs: segment_24
+    if: ${{ always() && needs.segment_24.result == 'success' && needs.segment_24.outputs.complete != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail closed after the bounded continuation chain
+        run: |
+          echo "Primary ResNet did not complete within 24 resumable segments." >&2
+          echo "Do not change the frozen model automatically; inspect progress and extend execution only." >&2
+          exit 1
