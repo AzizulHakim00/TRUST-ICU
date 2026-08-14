@@ -1,0 +1,6 @@
+TRUST-ECG v0.4 resumable fixed-ResNet launch
+
+Purpose: continue the prospectively locked primary ResNet through exact batch-boundary state transfer across bounded CPU jobs.
+Scientific changes: none.
+Execution changes: model/optimizer/BatchNorm/RNG/sampler/early-stopping state are checkpointed; each segment stops before the GitHub-hosted six-hour limit.
+Data source: immutable verified-data cache from split run 31519604652.
