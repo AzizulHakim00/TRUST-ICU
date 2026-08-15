@@ -1,0 +1,10 @@
+{
+  "study": "TRUST-ECG",
+  "stage": "statistical_publication_addendum_relaunch",
+  "reason": "audited_phase0_probability_reconstruction_and_cache_preservation_fix",
+  "analysis_commit": "fc0876e6744686ba8565cee1c4234452a23bd7b1",
+  "bootstrap_repeats": 2000,
+  "calibration_bins": 10,
+  "privacy": "aggregate_only",
+  "requested_at_utc": "2026-08-15T07:43:00Z"
+}
