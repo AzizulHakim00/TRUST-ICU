@@ -151,7 +151,7 @@ jobs:
           set -euo pipefail
           rm -rf "$ADDENDUM_ROOT"
           mkdir -p "$ADDENDUM_ROOT"
-          python scripts/run_open_ecg_statistical_addendum.py \
+          python scripts/run_open_ecg_statistical_addendum_audited.py \
             --phase0-report "$RESULTS_ROOT/open_ecg_phase0_resnet_report.json" \
             --primary-data-root "$DATA_ROOT" \
             --model-index "$WORK_ROOT/model_index/open_ecg_model_index.csv" \
@@ -163,6 +163,15 @@ jobs:
             --output-root "$ADDENDUM_ROOT" \
             --bootstrap-repeats 2000 --calibration-bins 10 \
             --device cpu --num-workers 0
+
+      - name: Upload aggregate-only reconstruction diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-ecg-statistical-diagnostics-${{ inputs.launch_token }}
+          path: .trust_ecg_runtime/statistical_addendum/resnet_metric_reconstruction_audit.csv
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Validate aggregate-only publication package
         run: |
@@ -177,6 +186,7 @@ jobs:
               "paired_resnet_logistic_external.csv",
               "phase1_matched_method_comparisons.csv",
               "calibration_bins.csv",
+              "resnet_metric_reconstruction_audit.csv",
               "internal_calibration.png",
               "internal_calibration.pdf",
               "external_candidate_calibration.png",
@@ -245,8 +255,8 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "No record-level predictions, logits, identifiers, waveforms, sampled indices, calibration parameters, or checkpoints were uploaded." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Delete ephemeral completed-primary cache
-        if: always()
+      - name: Delete ephemeral completed-primary cache after validated artifact
+        if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           RESULT_CACHE_KEY: ${{ inputs.result_cache_key }}
