@@ -8,7 +8,10 @@ import json
 from pathlib import Path
 
 from trust_icu.ecg_manifest import load_and_verify_label_manifest
-from trust_icu.ecg_phase0_v04 import load_and_verify_model_index, load_and_verify_normalization_stats
+from trust_icu.ecg_phase0_v04 import (
+    load_and_verify_model_index,
+    load_and_verify_normalization_stats,
+)
 from trust_icu.ecg_phase1 import build_phase1_plan, load_and_verify_phase0_report
 from trust_icu.ecg_statistical_core import write_csv
 from trust_icu.ecg_statistical_phase1 import execute_phase1_with_matched_capture
@@ -49,7 +52,10 @@ def main() -> int:
     phase0_path = Path(args.phase0_report).expanduser().resolve()
     report = load_and_verify_phase0_report(phase0_path, args.protocol)
     manifest = load_and_verify_label_manifest(args.label_manifest)
-    _, index_audit = load_and_verify_model_index(index_csv=args.model_index, index_audit_path=args.model_index_audit)
+    _, index_audit = load_and_verify_model_index(
+        index_csv=args.model_index,
+        index_audit_path=args.model_index_audit,
+    )
     normalization_stats = load_and_verify_normalization_stats(args.normalization_stats)
     label_codes = tuple(str(code) for code in report["label_codes"])
     if label_codes != LOCKED_LABEL_CODES:
@@ -78,20 +84,35 @@ def main() -> int:
     )
     plan = build_phase1_plan(phase0_path, args.protocol)
     (output_root / "source_phase1_plan.json").write_text(
-        json.dumps(plan.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        json.dumps(plan.to_dict(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
     )
     write_csv(output_root / "phase1_matched_method_comparisons.csv", phase1_rows)
     plot_phase1_recovery(phase1_report, output_root)
 
     payload = build_phase1_stage_payload(
-        protocol_version=str(report["protocol_version"]), protocol_sha256=str(report["protocol_sha256"]),
-        phase0_report_sha256=str(report["report_sha256"]), phase0_model_sha256=str(report["model_sha256"]),
-        model_index_sha256=str(report["model_index_sha256"]), label_manifest_sha256=str(report["label_manifest_sha256"]),
+        protocol_version=str(report["protocol_version"]),
+        protocol_sha256=str(report["protocol_sha256"]),
+        phase0_report_sha256=str(report["report_sha256"]),
+        phase0_model_sha256=str(report["model_sha256"]),
+        model_index_sha256=str(report["model_index_sha256"]),
+        label_manifest_sha256=str(report["label_manifest_sha256"]),
         normalization_stats_sha256=str(normalization_stats.stats_sha256),
-        phase1_report_sha256=str(phase1_report["report_sha256"]), matched_results=matched_results,
+        phase1_report_sha256=str(phase1_report["report_sha256"]),
+        matched_results=matched_results,
     )
     digest = write_stage_payload(output_root / "phase1_stage.json", payload)
-    print(json.dumps({"stage": "phase1_matched", "stage_sha256": digest, "output_root": str(output_root)}, indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "stage": "phase1_matched",
+                "stage_sha256": digest,
+                "output_root": str(output_root),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 
