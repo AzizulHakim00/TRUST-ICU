@@ -1,0 +1,140 @@
+name: TRUST-ECG statistical addendum assembler
+
+on:
+  workflow_call:
+    inputs:
+      result_cache_key: {required: true, type: string}
+      expected_head_sha: {required: true, type: string}
+      launch_token: {required: true, type: string}
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RESULTS_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/results
+      MODEL_STAGE_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/model_stage
+      PHASE1_STAGE_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/phase1_stage
+      ADDENDUM_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/statistical_addendum
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.expected_head_sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/results
+          key: ${{ inputs.result_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Download model-comparison stage
+        uses: actions/download-artifact@v4
+        with:
+          name: trust-ecg-model-statistics-${{ inputs.launch_token }}
+          path: .trust_ecg_runtime/model_stage
+
+      - name: Download matched Phase-1 stage
+        uses: actions/download-artifact@v4
+        with:
+          name: trust-ecg-phase1-statistics-${{ inputs.launch_token }}
+          path: .trust_ecg_runtime/phase1_stage
+
+      - name: Install aggregate-only assembly runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e ".[reporting]"
+
+      - name: Assemble and hash final publication package
+        run: |
+          set -euo pipefail
+          rm -rf "$ADDENDUM_ROOT" && mkdir -p "$ADDENDUM_ROOT"
+          python scripts/assemble_open_ecg_statistical_addendum.py \
+            --model-stage-root "$MODEL_STAGE_ROOT" \
+            --phase1-stage-root "$PHASE1_STAGE_ROOT" \
+            --phase0-report "$RESULTS_ROOT/open_ecg_phase0_resnet_report.json" \
+            --training-history "$RESULTS_ROOT/open_ecg_resnet_training_history.json" \
+            --output-root "$ADDENDUM_ROOT" \
+            --bootstrap-repeats 2000 --calibration-bins 10
+
+      - name: Validate aggregate-only publication package
+        run: |
+          python - <<'PY'
+          import csv, hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ["ADDENDUM_ROOT"])
+          required = {
+              "trust_ecg_statistical_addendum.json",
+              "paired_resnet_logistic_internal.csv", "paired_resnet_logistic_external.csv",
+              "phase1_matched_method_comparisons.csv", "calibration_bins.csv",
+              "resnet_metric_reconstruction_audit.csv",
+              "internal_calibration.png", "internal_calibration.pdf",
+              "external_candidate_calibration.png", "external_candidate_calibration.pdf",
+              "internal_paired_pr_auc_differences.png", "internal_paired_pr_auc_differences.pdf",
+              "phase1_recovery_curves.png", "phase1_recovery_curves.pdf",
+              "statistical_addendum_summary.md", "aggregate_sha256_manifest.json",
+              "source_phase0_resnet_report.json", "source_resnet_training_history.json",
+              "source_phase1_plan.json", "source_phase1_recovery_report.json",
+          }
+          missing = sorted(name for name in required if not (root / name).is_file())
+          if missing: raise SystemExit(f"Missing aggregate addendum files: {missing}")
+          forbidden_extensions = {".pt", ".pth", ".npy", ".npz", ".mat", ".dat", ".hea"}
+          forbidden_headers = {"record_id", "patient_id", "raw_prediction", "raw_predictions", "logit", "logits", "waveform", "adaptation_index", "adaptation_indices"}
+          for path in root.rglob("*"):
+              if not path.is_file(): continue
+              if path.suffix.lower() in forbidden_extensions: raise SystemExit(f"Forbidden patient/model-level file in artifact: {path.name}")
+              if path.suffix.lower() == ".csv":
+                  with path.open(newline="", encoding="utf-8") as handle:
+                      headers = set(next(csv.reader(handle)))
+                  overlap = headers & forbidden_headers
+                  if overlap: raise SystemExit(f"Forbidden record-level CSV columns in {path.name}: {overlap}")
+          report = json.loads((root / "trust_ecg_statistical_addendum.json").read_text())
+          if report["privacy"]["record_level_output_persisted"] is not False: raise SystemExit("Addendum privacy declaration changed.")
+          material = dict(report); observed = material["report_sha256"]; material["report_sha256"] = ""
+          encoded = json.dumps(material, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+          if hashlib.sha256(encoded).hexdigest() != observed: raise SystemExit("Addendum report SHA-256 verification failed.")
+          manifest = json.loads((root / "aggregate_sha256_manifest.json").read_text())
+          for name, expected in manifest.items():
+              if hashlib.sha256((root / name).read_bytes()).hexdigest() != expected: raise SystemExit(f"Aggregate file hash mismatch: {name}")
+          print("Validated aggregate-only statistical addendum.")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trust-ecg-statistical-addendum-${{ inputs.launch_token }}
+          path: .trust_ecg_runtime/statistical_addendum
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record publication statistics summary
+        run: |
+          cat "$ADDENDUM_ROOT/statistical_addendum_summary.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "No record-level predictions, logits, identifiers, waveforms, sampled indices, calibration parameters, or checkpoints were uploaded." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete ephemeral completed-primary cache after validated artifact
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT_CACHE_KEY: ${{ inputs.result_cache_key }}
+        run: |
+          set +e
+          encoded=$(python - <<'PY'
+          import os
+          from urllib.parse import quote
+          print(quote(os.environ["RESULT_CACHE_KEY"], safe=""))
+          PY
+          )
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/caches?key=${encoded}&ref=refs/heads/${GITHUB_REF_NAME}"
+          exit 0

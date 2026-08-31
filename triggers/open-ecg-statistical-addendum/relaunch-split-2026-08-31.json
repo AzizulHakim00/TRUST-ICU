@@ -1,0 +1,10 @@
+{
+  "study": "TRUST-ECG",
+  "stage": "statistical_publication_addendum_relaunch",
+  "reason": "split_model_comparison_and_phase1_statistics_to_avoid_single_job_timeout",
+  "analysis_base_commit": "c5ff8c8c8abcbef732872eca4539273320c9c9a6",
+  "bootstrap_repeats": 2000,
+  "calibration_bins": 10,
+  "privacy": "aggregate_only",
+  "requested_at_utc": "2026-08-31T15:00:00Z"
+}
