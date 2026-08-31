@@ -12,7 +12,10 @@ import torch
 
 from trust_icu import ecg_statistical_models as models
 from trust_icu.ecg_manifest import load_and_verify_label_manifest
-from trust_icu.ecg_phase0_v04 import load_and_verify_model_index, load_and_verify_normalization_stats
+from trust_icu.ecg_phase0_v04 import (
+    load_and_verify_model_index,
+    load_and_verify_normalization_stats,
+)
 from trust_icu.ecg_phase1 import build_phase1_plan, load_and_verify_phase0_report
 from trust_icu.ecg_protocol import load_open_ecg_protocol
 from trust_icu.ecg_statistical_core import write_csv
@@ -71,7 +74,10 @@ def main() -> int:
     report = load_and_verify_phase0_report(phase0_path, args.protocol)
     protocol = load_open_ecg_protocol(args.protocol)
     manifest = load_and_verify_label_manifest(args.label_manifest)
-    rows, index_audit = load_and_verify_model_index(index_csv=args.model_index, index_audit_path=args.model_index_audit)
+    rows, index_audit = load_and_verify_model_index(
+        index_csv=args.model_index,
+        index_audit_path=args.model_index_audit,
+    )
     normalization_stats = load_and_verify_normalization_stats(args.normalization_stats)
     label_codes = tuple(str(code) for code in report["label_codes"])
     if label_codes != LOCKED_LABEL_CODES:
@@ -102,40 +108,69 @@ def main() -> int:
     batch_size = int(protocol["phase0_models"]["resnet1d_fixed"]["batch_size"])
     data_root = Path(args.primary_data_root).expanduser().resolve()
     resnet_internal, internal_targets = models.collect_resnet_probabilities(
-        model=model, rows=internal_rows, data_root=data_root, normalization_stats=normalization_stats,
-        calibration_payload=calibration_payload, label_codes=label_codes, batch_size=batch_size,
-        device=device, num_workers=args.num_workers,
+        model=model,
+        rows=internal_rows,
+        data_root=data_root,
+        normalization_stats=normalization_stats,
+        calibration_payload=calibration_payload,
+        label_codes=label_codes,
+        batch_size=batch_size,
+        device=device,
+        num_workers=args.num_workers,
     )
     resnet_external, external_targets = models.collect_resnet_probabilities(
-        model=model, rows=external_rows, data_root=data_root, normalization_stats=normalization_stats,
-        calibration_payload=calibration_payload, label_codes=label_codes, batch_size=batch_size,
-        device=device, num_workers=args.num_workers,
+        model=model,
+        rows=external_rows,
+        data_root=data_root,
+        normalization_stats=normalization_stats,
+        calibration_payload=calibration_payload,
+        label_codes=label_codes,
+        batch_size=batch_size,
+        device=device,
+        num_workers=args.num_workers,
     )
     validate_resnet_report_metrics_audited(
-        report=report, internal_targets=internal_targets, internal_probabilities=resnet_internal,
-        external_rows=external_rows, external_targets=external_targets,
-        external_probabilities=resnet_external, label_codes=label_codes,
+        report=report,
+        internal_targets=internal_targets,
+        internal_probabilities=resnet_internal,
+        external_rows=external_rows,
+        external_targets=external_targets,
+        external_probabilities=resnet_external,
+        label_codes=label_codes,
     )
 
     logistic_internal, logistic_external = models.fit_logistic_probabilities(
-        data_root=data_root, fit_rows=fit_rows, calibration_rows=calibration_rows,
-        internal_rows=internal_rows, external_rows=external_rows, label_codes=label_codes,
+        data_root=data_root,
+        fit_rows=fit_rows,
+        calibration_rows=calibration_rows,
+        internal_rows=internal_rows,
+        external_rows=external_rows,
+        label_codes=label_codes,
     )
     model_results, internal_table, external_table = models.paired_model_results(
-        internal_targets=internal_targets, resnet_internal=resnet_internal,
-        logistic_internal=logistic_internal, external_rows=external_rows,
-        external_targets=external_targets, resnet_external=resnet_external,
-        logistic_external=logistic_external, label_codes=label_codes,
+        internal_targets=internal_targets,
+        resnet_internal=resnet_internal,
+        logistic_internal=logistic_internal,
+        external_rows=external_rows,
+        external_targets=external_targets,
+        resnet_external=resnet_external,
+        logistic_external=logistic_external,
+        label_codes=label_codes,
         repeats=args.bootstrap_repeats,
     )
     plan = build_phase1_plan(phase0_path, args.protocol)
     candidate_pairs = {(item.source, item.label_code) for item in plan.candidate_pairs}
     bins_table = calibration_records(
-        internal_targets=internal_targets, resnet_internal=resnet_internal,
-        logistic_internal=logistic_internal, external_rows=external_rows,
-        external_targets=external_targets, resnet_external=resnet_external,
-        logistic_external=logistic_external, label_codes=label_codes,
-        candidate_pairs=candidate_pairs, bins=args.calibration_bins,
+        internal_targets=internal_targets,
+        resnet_internal=resnet_internal,
+        logistic_internal=logistic_internal,
+        external_rows=external_rows,
+        external_targets=external_targets,
+        resnet_external=resnet_external,
+        logistic_external=logistic_external,
+        label_codes=label_codes,
+        candidate_pairs=candidate_pairs,
+        bins=args.calibration_bins,
     )
 
     write_csv(output_root / "paired_resnet_logistic_internal.csv", internal_table)
@@ -147,14 +182,28 @@ def main() -> int:
     plot_internal_pr_auc_differences(internal_table, output_root)
 
     payload = build_model_stage_payload(
-        protocol_version=str(report["protocol_version"]), protocol_sha256=str(report["protocol_sha256"]),
-        phase0_report_sha256=str(report["report_sha256"]), phase0_model_sha256=str(report["model_sha256"]),
-        model_index_sha256=str(report["model_index_sha256"]), label_manifest_sha256=str(report["label_manifest_sha256"]),
-        normalization_stats_sha256=str(normalization_stats.stats_sha256), bootstrap_repeats=args.bootstrap_repeats,
+        protocol_version=str(report["protocol_version"]),
+        protocol_sha256=str(report["protocol_sha256"]),
+        phase0_report_sha256=str(report["report_sha256"]),
+        phase0_model_sha256=str(report["model_sha256"]),
+        model_index_sha256=str(report["model_index_sha256"]),
+        label_manifest_sha256=str(report["label_manifest_sha256"]),
+        normalization_stats_sha256=str(normalization_stats.stats_sha256),
+        bootstrap_repeats=args.bootstrap_repeats,
         model_results=model_results,
     )
     digest = write_stage_payload(output_root / "model_comparison_stage.json", payload)
-    print(json.dumps({"stage": "model_comparison", "stage_sha256": digest, "output_root": str(output_root)}, indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "stage": "model_comparison",
+                "stage_sha256": digest,
+                "output_root": str(output_root),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 
