@@ -1,0 +1,6 @@
+TRUST-ECG v0.4 verified-data cache recovery
+
+Purpose: split public-data acquisition, resumable corpus checkpointing, and frozen hash verification across separate GitHub-hosted runner windows after run 33519486538 reached the six-hour ceiling immediately after successfully reproducing the exact frozen data identity.
+
+Scientific implementation changed: false
+Previous run: 33519486538
