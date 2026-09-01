@@ -1,0 +1,302 @@
+name: TRUST-ECG v0.4 Verified Data Cache Recovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - "triggers/open-ecg-cache-recovery/**"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: trust-ecg-v04-cache-recovery-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ACTIVATION_PATH: triggers/open-ecg-resnet-phase0/activation.json
+  RUNTIME_ROOT: ${{ github.workspace }}/.trust_ecg_runtime
+  DATA_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/primary
+  EVIDENCE_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/evidence
+  WORK_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/work
+  PHASE1_LOCK_SHA: 4b5189d693ddd9ede6715cc3210b9157972144e2
+
+jobs:
+  prepare-header-seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      header_key: ${{ steps.keys.outputs.header_key }}
+      raw_key: ${{ steps.keys.outputs.raw_key }}
+      final_key: ${{ steps.keys.outputs.final_key }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Validate frozen execution state and derive cache keys
+        id: keys
+        run: |
+          set -euo pipefail
+          python scripts/validate_open_ecg_resnet_activation.py --activation "$ACTIVATION_PATH"
+          LOGISTIC_SHA=$(python -c 'import json,os; print(json.load(open(os.environ["ACTIVATION_PATH"]))["logistic_head_sha"])')
+          phase0_protected=(
+            pyproject.toml schemas/open_ecg_protocol.yaml
+            src/trust_icu/ecg_baseline.py src/trust_icu/ecg_index.py src/trust_icu/ecg_manifest.py
+            src/trust_icu/ecg_phase0.py src/trust_icu/ecg_phase0_v04.py
+            src/trust_icu/ecg_deep_phase0.py src/trust_icu/ecg_deep_phase0_v04.py
+            src/trust_icu/ecg_resnet.py src/trust_icu/ecg_signal.py src/trust_icu/ecg_waveform.py
+            scripts/audit_original_ptbxl_labels.py scripts/build_open_ecg_model_index.py
+            scripts/fetch_open_ecg_headers.py scripts/fetch_open_ecg_primary_waveforms_v04.py
+            scripts/lock_open_ecg_labels.py scripts/prepare_open_ecg_data.py
+            scripts/prepare_open_ecg_waveforms.py scripts/run_open_ecg_phase0.py
+          )
+          git diff --quiet "$LOGISTIC_SHA" "$GITHUB_SHA" -- "${phase0_protected[@]}" || {
+            echo "Frozen Phase 0 implementation drift detected." >&2
+            exit 1
+          }
+          phase1_protected=(src/trust_icu/ecg_phase1.py scripts/run_open_ecg_phase1.py)
+          git diff --quiet "$PHASE1_LOCK_SHA" "$GITHUB_SHA" -- "${phase1_protected[@]}" || {
+            echo "Frozen Phase 1 implementation drift detected." >&2
+            exit 1
+          }
+          python - "$GITHUB_OUTPUT" <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          a=json.loads(Path(os.environ['ACTIVATION_PATH']).read_text())
+          header=f"trust-ecg-v04-header-seed-v2-{a['label_manifest_sha256'][:16]}"
+          raw=f"trust-ecg-v04-public-corpus-v2-{a['label_manifest_sha256'][:16]}-{a['logistic_head_sha'][:16]}"
+          final=("trust-ecg-v04-verified-data-"+a['label_manifest_sha256'][:16]+"-"+a['waveform_audit_sha256'][:16]+"-"+a['model_index_audit_sha256'][:16])
+          with Path(sys.argv[1]).open('a') as f:
+              f.write(f'header_key={header}\nraw_key={raw}\nfinal_key={final}\n')
+          PY
+      - name: Restore header seed if present
+        id: header_restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/evidence
+          key: ${{ steps.keys.outputs.header_key }}
+      - name: Install waveform verification runtime
+        if: steps.header_restore.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ecg-waveform]"
+      - name: Build exact header and label seed
+        if: steps.header_restore.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNTIME_ROOT"
+          mkdir -p "$EVIDENCE_ROOT"
+          curl --fail --location --retry 8 --retry-all-errors --retry-delay 2 \
+            --output "$EVIDENCE_ROOT/ptbxl_database.csv" \
+            https://physionet.org/files/ptb-xl/1.0.1/ptbxl_database.csv
+          test -s "$EVIDENCE_ROOT/ptbxl_database.csv"
+          python scripts/fetch_open_ecg_headers.py \
+            --output-root "$EVIDENCE_ROOT" --workers 8 --recovery-rounds 4 \
+            --skip-original-ptbxl-headers \
+            --summary "$EVIDENCE_ROOT/header_download_summary.json"
+          python scripts/prepare_open_ecg_data.py \
+            --header-root "$EVIDENCE_ROOT/challenge" \
+            --ptbxl-metadata "$EVIDENCE_ROOT/ptbxl_database.csv" \
+            --output "$EVIDENCE_ROOT/open_ecg_header_audit.json" --require-ready
+          python scripts/audit_original_ptbxl_labels.py \
+            --ptbxl-metadata "$EVIDENCE_ROOT/ptbxl_database.csv" \
+            --output "$EVIDENCE_ROOT/ptbxl_label_concordance_audit.json" --require-ready
+          python scripts/lock_open_ecg_labels.py \
+            --header-audit "$EVIDENCE_ROOT/open_ecg_header_audit.json" \
+            --ptbxl-label-concordance "$EVIDENCE_ROOT/ptbxl_label_concordance_audit.json" \
+            --output "$EVIDENCE_ROOT/open_ecg_label_manifest.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          a=json.loads(Path(os.environ['ACTIVATION_PATH']).read_text())
+          e=Path(os.environ['EVIDENCE_ROOT'])
+          observed=json.loads((e/'open_ecg_label_manifest.json').read_text())['manifest_sha256']
+          if observed != a['label_manifest_sha256']:
+              raise SystemExit(f'Label-manifest mismatch: {observed} != {a["label_manifest_sha256"]}')
+          print('Header/label seed matches frozen activation.')
+          PY
+      - name: Save header seed
+        if: steps.header_restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .trust_ecg_runtime/evidence
+          key: ${{ steps.keys.outputs.header_key }}
+
+  download-public-corpus:
+    needs: prepare-header-seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Validate activation
+        run: python scripts/validate_open_ecg_resnet_activation.py --activation "$ACTIVATION_PATH"
+      - name: Restore exact header seed
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/evidence
+          key: ${{ needs.prepare-header-seed.outputs.header_key }}
+          fail-on-cache-miss: true
+      - name: Restore public corpus if present
+        id: raw_restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/primary
+          key: ${{ needs.prepare-header-seed.outputs.raw_key }}
+      - name: Install waveform runtime
+        if: steps.raw_restore.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ecg-waveform]"
+      - name: Download exact public waveform corpus
+        if: steps.raw_restore.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          rm -rf "$DATA_ROOT"
+          mkdir -p "$DATA_ROOT/ptb-xl"
+          cp "$EVIDENCE_ROOT/ptbxl_database.csv" "$DATA_ROOT/ptb-xl/ptbxl_database.csv"
+          for source in georgia cpsc_2018 cpsc_2018_extra; do
+            cp -a "$EVIDENCE_ROOT/challenge/${source}" "$DATA_ROOT/${source}"
+          done
+          python scripts/fetch_open_ecg_primary_waveforms_v04.py \
+            --output-root "$DATA_ROOT" --workers 4 --recovery-rounds 4 \
+            --summary "$DATA_ROOT/waveform_download_summary.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=json.loads((Path(os.environ['DATA_ROOT'])/'waveform_download_summary.json').read_text())
+          if not p.get('ready_for_waveform_audit'):
+              raise SystemExit('Public waveform corpus is not ready for audit.')
+          if any(p.get('failed_counts_by_round', [])):
+              raise SystemExit(f"Waveform download failures remain: {p['failed_counts_by_round']}")
+          if p.get('challenge_ptbxl_model_input') is not False:
+              raise SystemExit('Challenge-renamed PTB-XL unexpectedly entered model input.')
+          print(f"Exact public corpus downloaded: {p.get('completed_files')} files.")
+          PY
+          du -sh "$DATA_ROOT"
+      - name: Save resumable public corpus checkpoint
+        if: steps.raw_restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .trust_ecg_runtime/primary
+          key: ${{ needs.prepare-header-seed.outputs.raw_key }}
+
+  verify-and-publish:
+    needs: [prepare-header-seed, download-public-corpus]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Validate frozen execution state
+        run: |
+          set -euo pipefail
+          python scripts/validate_open_ecg_resnet_activation.py --activation "$ACTIVATION_PATH"
+          LOGISTIC_SHA=$(python -c 'import json,os; print(json.load(open(os.environ["ACTIVATION_PATH"]))["logistic_head_sha"])')
+          git diff --quiet "$LOGISTIC_SHA" "$GITHUB_SHA" -- pyproject.toml schemas/open_ecg_protocol.yaml src/trust_icu/ecg_baseline.py src/trust_icu/ecg_index.py src/trust_icu/ecg_manifest.py src/trust_icu/ecg_phase0.py src/trust_icu/ecg_phase0_v04.py src/trust_icu/ecg_deep_phase0.py src/trust_icu/ecg_deep_phase0_v04.py src/trust_icu/ecg_resnet.py src/trust_icu/ecg_signal.py src/trust_icu/ecg_waveform.py scripts/audit_original_ptbxl_labels.py scripts/build_open_ecg_model_index.py scripts/fetch_open_ecg_headers.py scripts/fetch_open_ecg_primary_waveforms_v04.py scripts/lock_open_ecg_labels.py scripts/prepare_open_ecg_data.py scripts/prepare_open_ecg_waveforms.py scripts/run_open_ecg_phase0.py || exit 1
+          git diff --quiet "$PHASE1_LOCK_SHA" "$GITHUB_SHA" -- src/trust_icu/ecg_phase1.py scripts/run_open_ecg_phase1.py || exit 1
+      - name: Restore header seed
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/evidence
+          key: ${{ needs.prepare-header-seed.outputs.header_key }}
+          fail-on-cache-miss: true
+      - name: Restore exact public corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/primary
+          key: ${{ needs.prepare-header-seed.outputs.raw_key }}
+          fail-on-cache-miss: true
+      - name: Install waveform verification runtime
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ecg-waveform]"
+      - name: Independently reproduce and verify frozen data identity
+        run: |
+          set -euo pipefail
+          rm -rf "$WORK_ROOT"
+          python scripts/prepare_open_ecg_waveforms.py \
+            --primary-data-root "$DATA_ROOT" \
+            --ptbxl-metadata "$DATA_ROOT/ptb-xl/ptbxl_database.csv" \
+            --header-audit "$EVIDENCE_ROOT/open_ecg_header_audit.json" \
+            --label-manifest "$EVIDENCE_ROOT/open_ecg_label_manifest.json" \
+            --output-root "$WORK_ROOT/waveform" --require-ready
+          python scripts/build_open_ecg_model_index.py \
+            --primary-data-root "$DATA_ROOT" \
+            --ptbxl-metadata "$DATA_ROOT/ptb-xl/ptbxl_database.csv" \
+            --waveform-audit "$WORK_ROOT/waveform/open_ecg_waveform_audit.json" \
+            --label-manifest "$EVIDENCE_ROOT/open_ecg_label_manifest.json" \
+            --ptbxl-assignment "$WORK_ROOT/waveform/ptbxl_verified_assignment.csv" \
+            --output-root "$WORK_ROOT/model_index"
+          rm -rf "$WORK_ROOT/reverify_waveform" "$WORK_ROOT/reverify_index"
+          python scripts/prepare_open_ecg_waveforms.py \
+            --primary-data-root "$DATA_ROOT" \
+            --ptbxl-metadata "$DATA_ROOT/ptb-xl/ptbxl_database.csv" \
+            --header-audit "$EVIDENCE_ROOT/open_ecg_header_audit.json" \
+            --label-manifest "$EVIDENCE_ROOT/open_ecg_label_manifest.json" \
+            --output-root "$WORK_ROOT/reverify_waveform" --require-ready
+          python scripts/build_open_ecg_model_index.py \
+            --primary-data-root "$DATA_ROOT" \
+            --ptbxl-metadata "$DATA_ROOT/ptb-xl/ptbxl_database.csv" \
+            --waveform-audit "$WORK_ROOT/reverify_waveform/open_ecg_waveform_audit.json" \
+            --label-manifest "$EVIDENCE_ROOT/open_ecg_label_manifest.json" \
+            --ptbxl-assignment "$WORK_ROOT/reverify_waveform/ptbxl_verified_assignment.csv" \
+            --output-root "$WORK_ROOT/reverify_index"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          a=json.loads(Path(os.environ['ACTIVATION_PATH']).read_text())
+          e=Path(os.environ['EVIDENCE_ROOT']); w=Path(os.environ['WORK_ROOT'])
+          h=json.loads((e/'open_ecg_header_audit.json').read_text())
+          c=json.loads((e/'ptbxl_label_concordance_audit.json').read_text())
+          m=json.loads((e/'open_ecg_label_manifest.json').read_text())
+          wf=json.loads((w/'reverify_waveform/open_ecg_waveform_audit.json').read_text())
+          ix=json.loads((w/'reverify_index/open_ecg_model_index_audit.json').read_text())
+          observed={
+            'header_audit_sha256': h['manifest_sha256'],
+            'ptbxl_label_concordance_audit_sha256': c['audit_sha256'],
+            'label_manifest_sha256': m['manifest_sha256'],
+            'waveform_audit_sha256': wf['audit_sha256'],
+            'normalization_stats_sha256': wf['normalization_stats_sha256'],
+            'ptbxl_assignment_sha256': wf['ptbxl_assignment_sha256'],
+            'model_index_sha256': ix['index_sha256'],
+            'model_index_audit_sha256': ix['audit_sha256'],
+            'label_codes': ix['label_codes'],
+          }
+          for k,v in observed.items():
+              if a[k] != v: raise SystemExit(f'Verified-data mismatch for {k}: {v!r} != {a[k]!r}')
+          if ix.get('challenge_ptbxl_model_input') is not False:
+              raise SystemExit('Challenge-renamed PTB-XL unexpectedly entered model input.')
+          print('Exact v0.4 verified-data state independently reproduced and verified.')
+          PY
+          rm -rf "$WORK_ROOT/waveform" "$WORK_ROOT/model_index"
+          mv "$WORK_ROOT/reverify_waveform" "$WORK_ROOT/waveform"
+          mv "$WORK_ROOT/reverify_index" "$WORK_ROOT/model_index"
+      - name: Save deterministic verified-data cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .trust_ecg_runtime/primary
+            .trust_ecg_runtime/evidence
+            .trust_ecg_runtime/work
+          key: ${{ needs.prepare-header-seed.outputs.final_key }}
+      - name: Relaunch frozen split ResNet workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run open-ecg-real-resnet-phase0-v04-split.yml --ref open-ecg-transportability
