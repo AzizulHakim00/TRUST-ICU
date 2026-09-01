@@ -1,0 +1,10 @@
+TRUST-ECG v0.4 verified-data cache recovery launch
+
+Purpose: rebuild and re-verify the exact deterministic public ECG waveform state after the statistical publication workflow failed at cache restore.
+
+Scientific implementation changed: false
+Source activation: triggers/open-ecg-resnet-phase0/activation.json
+Failed statistical workflow run: 33408120277
+Missing cache key: trust-ecg-v04-verified-data-d78cc8bb6f938f3a-2454838e4ee3b9ad-52dcb28880384a66
+Recovery path: existing Real TRUST-ECG v0.4 Split Fixed ResNet prepare-verified-data job
+Required behavior: rebuild on cache miss, re-verify all frozen activation hashes, save deterministic verified-data cache, then continue only under existing frozen guards.
