@@ -1,0 +1,12 @@
+{
+  "purpose": "Launch TRUST-ECG v0.4 resumable fixed-ResNet execution after confirmed monolithic CPU timeout",
+  "previous_failed_run_id": 33587299435,
+  "execution_path": "24 bounded resumable ResNet segments followed by frozen statistical publication addendum",
+  "scientific_protocol_changed": false,
+  "frozen_model_changed": false,
+  "label_definitions_changed": false,
+  "normalization_changed": false,
+  "bootstrap_or_calibration_rules_changed": false,
+  "privacy_constraints_changed": false,
+  "requested_action": "Run existing segmented workflow with all hash, cache, provenance, and privacy gates intact"
+}
