@@ -1,0 +1,24 @@
+name: Real TRUST-ECG v0.4 Statistical Addendum Recovery
+
+on:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - "triggers/open-ecg-statistical-addendum-recovery/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: trust-ecg-v04-statistical-addendum-recovery-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  statistical_addendum:
+    uses: ./.github/workflows/_open-ecg-statistical-addendum-final.yml
+    with:
+      result_cache_key: trust-ecg-v04-primary-result-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
