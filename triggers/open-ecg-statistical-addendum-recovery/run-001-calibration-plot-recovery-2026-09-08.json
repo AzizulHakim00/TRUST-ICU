@@ -1,0 +1,11 @@
+{
+  "study": "TRUST-ECG",
+  "protocol_version": "0.4.0",
+  "recovery": "final_statistics_after_calibration_plot_roundoff_fix",
+  "source_workflow_run_id": 33983502640,
+  "source_failed_job_id": 101431556723,
+  "completed_primary_result_cache_key": "trust-ecg-v04-primary-result-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68",
+  "plot_fix_commit": "53435d468193d3867cafac7e7aa6f57ce4b2cfa6",
+  "scientific_implementation_changed": false,
+  "purpose": "Reuse the verified completed primary ResNet state and rerun only the aggregate statistical model-comparison, matched Phase-1, and final assembly stages after fixing floating-point error-bar rendering."
+}
