@@ -1,0 +1,10 @@
+{
+  "study": "TRUST-ECG",
+  "protocol_version": "0.4.0",
+  "stage": "aggregate_only_statistical_assembly_recovery",
+  "source_workflow_run_id": 34192937631,
+  "model_statistics_artifact": "trust-ecg-model-statistics-34192937631",
+  "phase1_statistics_artifact": "trust-ecg-phase1-statistics-34192937631",
+  "result_cache_key": "trust-ecg-v04-primary-result-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68",
+  "reason": "Reassemble the already-successful statistical stages after removing the unnecessary plotting/Torch import coupling from the aggregate assembler. No model training or statistical recomputation is requested."
+}
