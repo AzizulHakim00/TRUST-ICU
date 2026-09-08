@@ -6,6 +6,7 @@ on:
       result_cache_key: {required: true, type: string}
       expected_head_sha: {required: true, type: string}
       launch_token: {required: true, type: string}
+      source_run_id: {required: false, type: string, default: ""}
 
 permissions:
   contents: read
@@ -39,16 +40,36 @@ jobs:
           fail-on-cache-miss: true
 
       - name: Download model-comparison stage
+        if: inputs.source_run_id == ''
         uses: actions/download-artifact@v4
         with:
           name: trust-ecg-model-statistics-${{ inputs.launch_token }}
           path: .trust_ecg_runtime/model_stage
 
+      - name: Download model-comparison stage from prior run
+        if: inputs.source_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: trust-ecg-model-statistics-${{ inputs.launch_token }}
+          path: .trust_ecg_runtime/model_stage
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+
       - name: Download matched Phase-1 stage
+        if: inputs.source_run_id == ''
         uses: actions/download-artifact@v4
         with:
           name: trust-ecg-phase1-statistics-${{ inputs.launch_token }}
           path: .trust_ecg_runtime/phase1_stage
+
+      - name: Download matched Phase-1 stage from prior run
+        if: inputs.source_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: trust-ecg-phase1-statistics-${{ inputs.launch_token }}
+          path: .trust_ecg_runtime/phase1_stage
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
 
       - name: Install aggregate-only assembly runtime
         run: |
