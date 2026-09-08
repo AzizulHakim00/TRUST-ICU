@@ -12,7 +12,7 @@ from typing import Any
 
 from trust_icu.ecg_phase1 import load_and_verify_phase0_report
 from trust_icu.ecg_statistical_core import canonical_hash, json_ready, write_manifest
-from trust_icu.ecg_statistical_plots import write_summary
+from trust_icu.ecg_statistical_reporting import write_summary
 from trust_icu.ecg_statistical_stages import (
     LOCKED_LABEL_CODES,
     load_stage_payload,
