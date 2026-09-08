@@ -99,7 +99,14 @@ def plot_internal_calibration(
             y = [float(row["observed_prevalence"]) for row in subset]
             low = [float(row["observed_wilson_low"]) for row in subset]
             high = [float(row["observed_wilson_high"]) for row in subset]
-            errors = np.vstack([np.asarray(y) - np.asarray(low), np.asarray(high) - np.asarray(y)])
+            errors = np.vstack(
+                [np.asarray(y) - np.asarray(low), np.asarray(high) - np.asarray(y)]
+            )
+            if np.any(errors < -1e-12):
+                raise ValueError(
+                    "Calibration interval does not contain observed prevalence."
+                )
+            errors = np.maximum(errors, 0.0)
             axis.errorbar(
                 x,
                 y,
