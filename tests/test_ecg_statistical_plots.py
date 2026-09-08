@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+import importlib
+import sys
+from types import ModuleType
+
 import pytest
 
 pytest.importorskip("matplotlib")
 
-from trust_icu.ecg_statistical_plots import plot_internal_calibration
 
+def test_internal_calibration_tolerates_roundoff_in_wilson_bounds(tmp_path, monkeypatch):
+    models_stub = ModuleType("trust_icu.ecg_statistical_models")
+    models_stub.EXTERNAL_SOURCES = ()
+    models_stub.LABEL_NAMES = {"59118001": "RBBB"}
+    monkeypatch.setitem(sys.modules, "trust_icu.ecg_statistical_models", models_stub)
+    plot_internal_calibration = importlib.import_module(
+        "trust_icu.ecg_statistical_plots"
+    ).plot_internal_calibration
 
-def test_internal_calibration_tolerates_roundoff_in_wilson_bounds(tmp_path):
     rows = [
         {
             "scope": "internal_fold10",
