@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("matplotlib")
+
 from trust_icu.ecg_statistical_plots import plot_internal_calibration
 
 
