@@ -1,0 +1,25 @@
+name: Real TRUST-ECG v0.4 Statistical Assembly Recovery
+
+on:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - "triggers/open-ecg-statistical-assemble-recovery/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: trust-ecg-v04-statistical-assemble-recovery-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  statistical_addendum_assemble:
+    uses: ./.github/workflows/_open-ecg-statistical-assemble.yml
+    with:
+      result_cache_key: trust-ecg-v04-primary-result-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68
+      expected_head_sha: ${{ github.sha }}
+      launch_token: "34192937631"
+      source_run_id: "34192937631"
