@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from trust_icu.ecg_secondary_statistics import (
     bootstrap_gate_uncertainty,
     summarize_phase1_estimability,
