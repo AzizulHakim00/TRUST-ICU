@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 
 import pytest
+
 from trust_icu.ecg_secondary_seed import build_replication_protocol
 
 
