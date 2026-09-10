@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from trust_icu.ecg_secondary_reporting import (
+    _write_csv,
     build_secondary_aggregate_payload,
     verify_embedded_report_hash,
     write_secondary_aggregate_package,
@@ -116,6 +117,22 @@ def test_secondary_payload_is_aggregate_only_and_reproduces_official_counts() ->
     serialized = json.dumps(payload, sort_keys=True).lower()
     for forbidden in ('"record_id"', '"patient_id"', '"predictions"', '"logits"', '"waveforms"'):
         assert forbidden not in serialized
+
+
+def test_secondary_csv_writer_uses_union_schema_for_mixed_status_rows(tmp_path: Path) -> None:
+    path = tmp_path / "mixed.csv"
+    _write_csv(
+        path,
+        [
+            {"status": "not_estimable", "n": 40},
+            {"status": "estimable", "n": 200, "pr_auc": 0.91, "roc_auc": 0.95},
+        ],
+    )
+    text = path.read_text(encoding="utf-8")
+    header = text.splitlines()[0].split(",")
+    assert header == ["status", "n", "pr_auc", "roc_auc"]
+    assert "0.91" in text
+    assert "0.95" in text
 
 
 def test_secondary_package_writes_manifest_tracked_aggregate_files(tmp_path: Path) -> None:
