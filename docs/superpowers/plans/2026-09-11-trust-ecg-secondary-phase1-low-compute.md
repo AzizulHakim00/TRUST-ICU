@@ -6,7 +6,7 @@
 
 **Architecture:** Add new isolated `ecg_secondary_*` modules that consume verified aggregate primary artifacts and existing statistical helpers. The modules emit aggregate-only JSON/CSV summaries under a separate secondary-results namespace and never overwrite frozen Phase-0/Phase-1 artifacts. A small orchestration script and workflow validate provenance and generate publication-safe outputs.
 
-**Tech Stack:** Python 3.11, NumPy, SciPy, scikit-learn, pandas only where already used, pytest, GitHub Actions.
+**Tech Stack:** Python 3.11, NumPy, SciPy, scikit-learn, pytest, GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-09-11-trust-ecg-secondary-validation-design.md`
 
@@ -27,7 +27,7 @@
 - Create: `src/trust_icu/ecg_secondary_sensitivity.py`
 
 **Interfaces:**
-- Consumes: Phase-0 pair dictionaries containing `status`, support and `metrics`; existing certification metric semantics from `ecg_baseline.py`.
+- Consumes: serialized Phase-0 pair dictionaries with `status`, `metrics`, and `reasons`. For estimable pairs, support counts are inside `metrics` (`positives`, `negatives`); insufficient-support pairs have `metrics=None` and remain insufficient unless a later execution adapter supplies separate support counts from the frozen model index.
 - Produces: `SecondaryEnvelope`, `classify_pair_secondary(...)`, `evaluate_envelope_grid(...)`, and `evaluate_framework_ablations(...)`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -43,21 +43,26 @@ from trust_icu.ecg_secondary_sensitivity import (
 
 def _pair():
     return {
-        "support": {"positive": 80, "negative": 120},
+        "status": "certified",
         "metrics": {
+            "n": 200,
+            "positives": 80,
+            "negatives": 120,
             "prevalence": 0.4,
             "pr_auc": 0.84,
             "pr_auc_to_prevalence_ratio": 2.1,
+            "roc_auc": 0.90,
+            "brier": 0.12,
             "brier_skill_vs_prevalence": 0.08,
             "calibration_slope": 0.80,
             "calibration_intercept": 0.20,
         },
+        "reasons": [],
     }
 
 
 def test_official_secondary_envelope_reproduces_certified_status():
-    envelope = SecondaryEnvelope.official()
-    assert classify_pair_secondary(_pair(), envelope) == "certified"
+    assert classify_pair_secondary(_pair(), SecondaryEnvelope.official()) == "certified"
 
 
 def test_grid_keeps_official_reference_condition():
@@ -85,12 +90,11 @@ Expected: import failure because `trust_icu.ecg_secondary_sensitivity` does not 
 
 - [ ] **Step 3: Implement the minimal sensitivity module**
 
-Implement an immutable `SecondaryEnvelope` dataclass with the official thresholds and a pure pair classifier that returns only the four existing statuses. Implement the fixed grid `{1.5,2.0,2.5,3.0} × {0.25,0.35,0.50} × {0.50,0.75,1.00} × {True,False}` plus the framework ablations defined in the approved spec. Preserve insufficient-support status before applying discrimination or calibration gates.
+Implement an immutable `SecondaryEnvelope` dataclass with the official thresholds and a pure pair classifier that returns only the four existing statuses. Implement the fixed grid `{1.5,2.0,2.5,3.0} × {0.25,0.35,0.50} × {0.50,0.75,1.00} × {True,False}` plus the framework ablations defined in the approved spec. Preserve insufficient-support status when metrics are absent. Support-threshold sensitivity is computed later from frozen model-index counts rather than fabricated from a report that intentionally stores `metrics=None` for insufficient pairs.
 
 - [ ] **Step 4: Run focused tests and then existing ECG tests**
 
-Run:
-`pytest tests/test_ecg_secondary_sensitivity.py tests/test_ecg_baseline.py tests/test_ecg_phase0.py -q`
+Run: `pytest tests/test_ecg_secondary_sensitivity.py tests/test_ecg_baseline.py tests/test_ecg_phase0.py -q`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -179,10 +183,7 @@ Commit message: `feat: add TRUST-ECG certification uncertainty summaries`
 
 ```python
 import numpy as np
-from trust_icu.ecg_secondary_overlap import (
-    summarize_cross_partition_overlap,
-    waveform_fingerprint,
-)
+from trust_icu.ecg_secondary_overlap import summarize_cross_partition_overlap, waveform_fingerprint
 
 
 def test_exact_duplicate_is_detected_without_identifier_output():
@@ -236,7 +237,6 @@ Commit message: `feat: add TRUST-ECG cross-partition overlap audit`
 - [ ] **Step 1: Write failing tests**
 
 ```python
-from pathlib import Path
 from trust_icu.ecg_secondary_reporting import validate_public_secondary_payload
 
 
