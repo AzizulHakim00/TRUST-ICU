@@ -2,7 +2,7 @@
 
 Date: 2026-09-11
 Branch: `open-ecg-transportability`
-Status: approved design, self-reviewed
+Status: approved design, revised to final direct-ResNet-only scope
 
 ## Purpose
 
@@ -18,21 +18,24 @@ The secondary package addresses the main remaining reviewer concerns:
 
 1. dependence of the headline certification pattern on exact envelope thresholds;
 2. dependence on neural-network initialization;
-3. lack of waveform-level explainability;
-4. lack of conventional XAI views for the 144-feature Logistic reference;
-5. lack of signal robustness/stress testing;
-6. lack of framework-level ablation/sensitivity analysis;
-7. residual cross-partition duplicate/near-duplicate risk where external patient IDs are unavailable;
-8. uncertainty around categorical certification decisions;
-9. incomplete Phase-1 estimability reporting;
-10. limited subgroup evidence where metadata are reliable;
-11. lack of a concise compute/deployment profile.
+3. lack of waveform-level explainability for the frozen ResNet;
+4. lack of signal robustness/stress testing;
+5. lack of framework-level ablation/sensitivity analysis;
+6. residual cross-partition duplicate/near-duplicate risk where external patient IDs are unavailable;
+7. uncertainty around categorical certification decisions;
+8. incomplete Phase-1 estimability reporting;
+9. limited subgroup evidence where metadata are reliable;
+10. lack of a concise compute/deployment profile.
 
 ## Design principles
 
 ### Primary analysis remains immutable
 
 Secondary code must read but never overwrite canonical Phase-0, Phase-1, checkpoint, calibration, protocol, manifest, waveform-audit, or statistical-addendum artifacts. Every secondary report must carry hashes that bind it to the exact frozen primary state.
+
+### Direct ResNet only
+
+Interpretability and robustness analyses use the actual frozen TRUST-ECG ResNet. No surrogate/lightweight model, extra CNN, alternate deep backbone, SHAP, LIME, PDP, ICE, or ALE is introduced for the secondary package.
 
 ### Low-compute first
 
@@ -43,7 +46,7 @@ Execution order:
 3. Phase-1 estimability summary;
 4. certification uncertainty;
 5. duplicate/near-duplicate audit;
-6. lightweight XAI;
+6. direct-ResNet XAI;
 7. robustness analysis;
 8. subgroup analysis where supported;
 9. compute profile;
@@ -90,13 +93,15 @@ Ablate the evaluation framework, not the ResNet architecture. Compare the same f
 
 Do not change residual blocks, kernels, channels, depth, optimizer, or training procedure.
 
-## 4. Lightweight ResNet XAI
+## 4. Direct frozen-ResNet XAI
 
-Use waveform-appropriate, low-compute methods:
+Use waveform-appropriate methods on the actual frozen ResNet:
 
+- Integrated Gradients;
+- 1D Grad-CAM from the last convolutional/residual stage;
 - lead-wise occlusion;
 - temporal-window occlusion;
-- Integrated Gradients.
+- grouped lead occlusion (limb vs precordial) as a compact clinical summary.
 
 Hard compute caps:
 
@@ -104,32 +109,14 @@ Hard compute caps:
 - temporal occlusion: **10 non-overlapping 1-second windows** per ECG;
 - lead occlusion: **12 individual leads** per ECG;
 - Integrated Gradients: at most **8 ECGs per source**, **24 integration steps** each;
+- Grad-CAM: at most **8 ECGs per source** using the same deterministic sample as Integrated Gradients;
 - if a requested label/source stratum lacks support, report `not estimable` rather than expanding the sample.
 
-Primary outputs are per-label lead importance, coarse temporal attribution, and rank/stability comparisons between internal and external sources. Certified vs calibration-failure attribution comparisons are secondary when support permits.
+Primary outputs are per-label lead importance, coarse temporal attribution, Grad-CAM temporal localization, and rank/stability comparisons between internal and external sources. Certified vs calibration-failure attribution comparisons are secondary when support permits. Later, the three-seed package may compare attribution summaries across `20260808`, `20260809`, and `20260810` without selecting a preferred seed.
 
-Do not use KernelSHAP, waveform-level LIME, PDP, ICE, or ALE across 60,000 raw ECG samples. XAI is descriptive and must never be presented as causal.
+XAI is descriptive and must never be presented as causal interpretation.
 
-## 5. Classical XAI for the 144-feature Logistic reference
-
-Use the low-capacity handcrafted Logistic model for conventional tabular XAI:
-
-- exact/linear SHAP global bar plot;
-- SHAP beeswarm;
-- SHAP waterfall plots for a deterministic small case set;
-- LIME local explanations;
-- PDP and ICE for the top 4-6 continuous features;
-- ALE for the same top 4-6 features.
-
-Compute caps:
-
-- SHAP may use all available aggregate-safe evaluation feature rows if the exact linear method is used;
-- waterfall/LIME examples: at most **2 examples per diagnosis** (one positive and one negative where available), with no record identifiers in outputs;
-- PDP/ICE/ALE: at most **6 features** selected by frozen/global Logistic importance, never by external performance.
-
-Avoid model-agnostic KernelSHAP unless exact/linear SHAP is unavailable.
-
-## 6. Signal robustness analysis
+## 5. Signal robustness analysis
 
 Use the frozen primary model only; do not retrain. Predefine a small practical perturbation suite:
 
@@ -142,7 +129,7 @@ Use the frozen primary model only; do not retrain. Predefine a small practical p
 
 Run robustness first on the internal test and external certification partitions only. Report relative changes in PR-AUC, ROC-AUC, Brier, and calibration where estimable. This is practical signal sensitivity, not adversarial robustness.
 
-## 7. Certification uncertainty
+## 6. Certification uncertainty
 
 Use existing bootstrap/statistical infrastructure to estimate uncertainty for the metrics that drive the official gate:
 
@@ -154,7 +141,7 @@ Use existing bootstrap/statistical infrastructure to estimate uncertainty for th
 
 Do not replace the point-estimate certification matrix. The bootstrap gate-satisfaction rate is secondary uncertainty evidence.
 
-## 8. Duplicate and near-duplicate audit
+## 7. Duplicate and near-duplicate audit
 
 Across external certification vs recovery partitions:
 
@@ -165,7 +152,7 @@ Across external certification vs recovery partitions:
 
 Output only aggregate counts, maximum/quantile similarity summaries, thresholds, and audit status. This audit may reduce overlap concern but must not claim patient independence when patient identifiers do not exist.
 
-## 9. Phase-1 estimability reporting
+## 8. Phase-1 estimability reporting
 
 Reuse existing Phase-1 outputs. For every candidate pair, budget, and method report:
 
@@ -178,15 +165,15 @@ Reuse existing Phase-1 outputs. For every candidate pair, budget, and method rep
 
 No imputation of non-estimable repeats.
 
-## 10. Statistical cleanup
+## 9. Statistical cleanup
 
 Retain bootstrap confidence intervals. For formal model-comparison claims, add paired randomization/permutation tests when prediction-level pairing is available. Existing bootstrap tail probabilities must be labelled as bootstrap tail probabilities unless the implementation is changed to a formal null procedure. Apply Benjamini-Hochberg control to coherent secondary-test families.
 
-## 11. Subgroup analysis
+## 10. Subgroup analysis
 
 Run only where reliable harmonized metadata and adequate support exist. Primary subgroups are sex and age bands. Results are descriptive secondary analyses; no subgroup-specific recalibration, model selection, or threshold tuning is allowed. Missing/unreliable metadata produce `not estimable`.
 
-## 12. Compute profile
+## 11. Compute profile
 
 Report trainable parameter count, serialized model size, representative CPU inference latency/throughput, and training duration/hardware from trustworthy workflow metadata. No extensive hardware benchmarking.
 
@@ -205,7 +192,6 @@ Expected artifacts include:
 - `duplicate_audit.json`;
 - `robustness.csv/json`;
 - `xai_resnet_summary.json`;
-- `xai_logistic_summary.json`;
 - publication figures;
 - `seed_stability.csv/json`;
 - `secondary_sha256_manifest.json`.
@@ -229,7 +215,7 @@ Frozen primary files must not change unless a non-scientific adapter is strictly
 
 ## Dependency policy
 
-Keep dependencies lightweight. Prefer existing NumPy/SciPy/scikit-learn/PyTorch/Matplotlib. Add `shap` only if required for reproducible linear-SHAP plots and `lime` only for the small Logistic analysis. Prefer a compact in-repo ALE implementation. Implement Integrated Gradients and occlusion directly with PyTorch unless a small dependency is clearly better. Do not add a heavy XAI framework solely for convenience.
+Keep dependencies lightweight. Prefer existing NumPy/SciPy/scikit-learn/PyTorch/Matplotlib. Implement Integrated Gradients, 1D Grad-CAM, and occlusion directly with PyTorch. Do not add a generic XAI framework solely for convenience.
 
 ## Testing and fail-closed behavior
 
@@ -240,6 +226,7 @@ Add tests that verify:
 - deterministic XAI sample selection and hard sample caps;
 - occlusion masks only intended leads/windows and preserves tensor shape;
 - Integrated Gradients enforces the 8-per-source/24-step caps;
+- Grad-CAM targets the intended final convolutional stage and returns finite temporal maps;
 - robustness perturbations are deterministic;
 - duplicate fingerprinting detects exact synthetic duplicates without exposing IDs;
 - Phase-1 estimability preserves non-estimable repeats;
@@ -258,7 +245,7 @@ Preserve the primary Results section. Add compact secondary evidence under headi
 The package is complete when:
 
 1. zero/low-compute analyses run reproducibly against frozen primary artifacts;
-2. XAI and robustness outputs are aggregate/publication-safe and obey compute caps;
+2. direct-ResNet XAI and robustness outputs are aggregate/publication-safe and obey compute caps;
 3. overlap auditing is reported without overclaiming patient independence;
 4. the two additional seeds complete under the exact frozen training protocol;
 5. three-seed status stability is summarized without replacing the primary seed;
