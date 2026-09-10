@@ -145,7 +145,7 @@ def test_overlap_audit_detects_exact_duplicate_without_exposing_records() -> Non
 def test_wilson_interval_and_phase1_estimability_preserve_missing_repeats() -> None:
     lower, upper = wilson_interval(90, 100)
     assert 0.82 < lower < 0.84
-    assert 0.95 < upper < 0.97
+    assert 0.94 < upper < 0.95
 
     phase1 = {
         "phase1_plan": {"repeats": 100},
