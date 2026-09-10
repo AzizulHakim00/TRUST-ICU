@@ -1,0 +1,53 @@
+name: TRUST-ECG Secondary Verified Cache Probe
+
+on:
+  push:
+    branches: [secondary-resnet-validation]
+    paths:
+      - "triggers/trust-ecg-secondary-cache-probe.txt"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore verified study data
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .trust_ecg_runtime/primary
+            .trust_ecg_runtime/evidence
+            .trust_ecg_runtime/work
+          key: trust-ecg-v04-verified-data-d78cc8bb6f938f3a-2454838e4ee3b9ad-52dcb28880384a66
+          fail-on-cache-miss: true
+      - name: Restore frozen primary result
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/results
+          key: trust-ecg-v04-primary-result-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68
+          fail-on-cache-miss: true
+      - name: Verify exact expected files
+        run: |
+          set -euo pipefail
+          test -f .trust_ecg_runtime/results/open_ecg_phase0_resnet_report.json
+          test -f .trust_ecg_runtime/results/open_ecg_resnet_checkpoint.pt
+          test -f .trust_ecg_runtime/results/open_ecg_resnet_calibration.json
+          test -f .trust_ecg_runtime/results/open_ecg_resnet_training_history.json
+          test -f .trust_ecg_runtime/work/model_index/open_ecg_model_index.csv
+          test -f .trust_ecg_runtime/work/model_index/open_ecg_model_index_audit.json
+          test -f .trust_ecg_runtime/work/waveform/open_ecg_normalization_stats.json
+          test -f .trust_ecg_runtime/evidence/open_ecg_label_manifest.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('.trust_ecg_runtime/results/open_ecg_phase0_resnet_report.json').read_text())
+          if report['report_sha256'] != '9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9':
+              raise SystemExit('Unexpected primary report SHA')
+          if report['model_sha256'] != '1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358':
+              raise SystemExit('Unexpected primary model SHA')
+          print('verified secondary cache access')
+          PY
