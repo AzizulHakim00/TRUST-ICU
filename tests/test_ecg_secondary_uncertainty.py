@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from trust_icu.ecg_secondary_uncertainty import (
     bootstrap_gate_uncertainty,
     parse_header_demographics,
