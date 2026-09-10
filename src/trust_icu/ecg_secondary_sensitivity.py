@@ -41,7 +41,7 @@ class SecondaryEnvelope:
     require_intercept: bool = True
 
     @classmethod
-    def official(cls) -> "SecondaryEnvelope":
+    def official(cls) -> SecondaryEnvelope:
         """Return the frozen Phase-0 gate exactly, for reference-only reproduction."""
 
         return cls()
