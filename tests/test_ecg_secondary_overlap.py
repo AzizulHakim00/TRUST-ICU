@@ -1,4 +1,5 @@
 import numpy as np
+
 from trust_icu.ecg_secondary_overlap import (
     cosine_similarity,
     summarize_cross_partition_overlap,
