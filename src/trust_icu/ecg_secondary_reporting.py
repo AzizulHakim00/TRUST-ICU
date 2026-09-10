@@ -137,7 +137,13 @@ def _write_json(path: Path, payload: Any) -> None:
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     if not rows:
         raise ValueError(f"Refusing to write empty aggregate CSV: {path.name}")
-    fieldnames = list(rows[0])
+    fieldnames: list[str] = []
+    seen: set[str] = set()
+    for raw in rows:
+        for key in raw:
+            if key not in seen:
+                seen.add(key)
+                fieldnames.append(key)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
