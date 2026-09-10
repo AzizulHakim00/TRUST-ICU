@@ -2,22 +2,15 @@
 
 Date: 2026-09-11
 Branch: `open-ecg-transportability`
-Status: approved design
+Status: approved design, self-reviewed
 
 ## Purpose
 
 Strengthen the publication evidence around TRUST-ECG without modifying, replacing, or retrospectively tuning the frozen primary TRUST-ECG v0.4 experiment.
 
-The primary scientific result remains the prospectively locked execution using:
+The primary scientific result remains the prospectively locked execution using the fixed 1D ResNet, primary seed `20260808`, PTB-XL folds 1-7 for fitting, fold 8 for early stopping, fold 9 for global calibration, fold 10 for untouched internal testing, the label-blind 60/40 external certification/recovery partition, the fixed Phase-0 certification envelope, and the frozen Phase-1 budgets and recalibration methods.
 
-- fixed 1D ResNet;
-- primary seed `20260808`;
-- PTB-XL folds 1-7 for fitting, fold 8 for early stopping, fold 9 for global calibration, fold 10 for untouched internal testing;
-- label-blind 60/40 external certification/recovery partition;
-- fixed Phase-0 certification envelope;
-- frozen Phase-1 budgets and recalibration methods.
-
-All work described below is secondary, sensitivity, robustness, interpretability, or replication analysis. None of it may alter the primary report, model hash, frozen protocol, label definitions, external partition, or primary conclusions after the fact.
+All new work is secondary, sensitivity, robustness, interpretability, audit, or replication analysis. It must not overwrite or redefine the primary report, model hash, frozen protocol, labels, split, or gate. Secondary evidence is allowed to strengthen, qualify, or weaken the interpretation; if it contradicts the original interpretation, the manuscript must report that transparently rather than changing analysis definitions.
 
 ## Scientific goals
 
@@ -26,24 +19,24 @@ The secondary package addresses the main remaining reviewer concerns:
 1. dependence of the headline certification pattern on exact envelope thresholds;
 2. dependence on neural-network initialization;
 3. lack of waveform-level explainability;
-4. lack of classical XAI views for the low-capacity reference model;
+4. lack of conventional XAI views for the 144-feature Logistic reference;
 5. lack of signal robustness/stress testing;
 6. lack of framework-level ablation/sensitivity analysis;
-7. residual cross-partition duplicate/near-duplicate risk when external patient IDs are unavailable;
+7. residual cross-partition duplicate/near-duplicate risk where external patient IDs are unavailable;
 8. uncertainty around categorical certification decisions;
 9. incomplete Phase-1 estimability reporting;
-10. lack of concise compute/deployment profile;
-11. limited subgroup evidence where reliable metadata are available.
+10. limited subgroup evidence where metadata are reliable;
+11. lack of a concise compute/deployment profile.
 
 ## Design principles
 
 ### Primary analysis remains immutable
 
-No secondary analysis may write into or overwrite canonical Phase-0, Phase-1, model, calibration, protocol, manifest, waveform-audit, or statistical-addendum artifacts. Secondary outputs must live under a separate aggregate-only output root and carry hashes linking them to the exact frozen primary artifacts used.
+Secondary code must read but never overwrite canonical Phase-0, Phase-1, checkpoint, calibration, protocol, manifest, waveform-audit, or statistical-addendum artifacts. Every secondary report must carry hashes that bind it to the exact frozen primary state.
 
 ### Low-compute first
 
-Execution order is designed to maximize scientific gain before expensive work:
+Execution order:
 
 1. envelope sensitivity;
 2. framework ablation;
@@ -54,15 +47,13 @@ Execution order is designed to maximize scientific gain before expensive work:
 7. robustness analysis;
 8. subgroup analysis where supported;
 9. compute profile;
-10. only then run the two additional ResNet seeds.
+10. two additional ResNet seeds last.
 
 ### No external tuning
 
-No external result may be used to tune architecture, normalization, preprocessing, thresholds, feature selection, seed selection, or augmentation. Secondary perturbation levels and sensitivity grids must be fixed in code before their result tables are assembled.
+External results may not tune architecture, normalization, preprocessing, feature selection, seed choice, augmentation, or the primary gate. Secondary perturbation levels, sensitivity grids, and XAI sampling rules must be fixed before their results are assembled.
 
-## Analysis modules
-
-### 1. Three-seed initialization stability
+## 1. Three-seed initialization stability
 
 Use exactly three total seeds:
 
@@ -70,188 +61,142 @@ Use exactly three total seeds:
 - `20260809` — secondary replication;
 - `20260810` — secondary replication.
 
-The two additional runs use the exact frozen ResNet architecture, training hyperparameters, folds, fold-9 calibration, external partition, and certification rules. They are not eligible to replace the primary model.
+The two additional runs use the exact frozen architecture, training hyperparameters, fold roles, fold-9 calibration, external partition, and certification rules. They cannot replace the primary model.
 
-Report:
+Report internal macro PR-AUC/ROC-AUC/Brier, per-label internal metrics, external per-pair metrics, pair-status agreement across seeds, the proportion of evaluable pairs whose status agrees with the primary seed, and concise mean/SD plus median/range summaries. Manuscript wording: `secondary initialization-stability analysis`.
 
-- internal macro PR-AUC, ROC-AUC, and Brier by seed;
-- per-label internal metrics by seed;
-- external per-pair metrics by seed;
-- pair-status agreement across seeds;
-- proportion of evaluable label-domain pairs whose status matches the primary seed;
-- summary mean/SD and median/range where useful.
+## 2. Certification-envelope sensitivity
 
-The manuscript must call this a `secondary initialization-stability analysis`, not a new primary estimate.
-
-### 2. Certification-envelope sensitivity
-
-Reuse frozen primary predictions. No model inference is required if audited probabilities are available through the current statistical reconstruction path.
-
-Evaluate nearby research envelopes while retaining the official threshold as the primary row:
+Reuse frozen primary predictions. Retain the official envelope as the primary row and evaluate only secondary nearby settings:
 
 - PR-AUC/prevalence ratio: `{1.5, 2.0, 2.5, 3.0}`;
 - maximum absolute slope deviation: `{0.25, 0.35, 0.50}`;
 - maximum absolute intercept: `{0.50, 0.75, 1.00}`;
-- Brier-skill requirement: `{required, not required}` as a secondary ablation only.
+- Brier-skill requirement: `{required, not required}` as an ablation only.
 
-For every setting report counts of:
+For each setting report counts of certified, calibration-recovery candidate, discrimination failure, and insufficient support. The key secondary endpoint is whether calibration failure remains more common than discrimination failure among evaluable pairs around the frozen envelope.
 
-- certified;
-- calibration-recovery candidate;
-- discrimination failure;
-- insufficient support.
+## 3. Framework ablation
 
-The key secondary endpoint is whether the qualitative finding `calibration failure is more common than discrimination failure among evaluable pairs` remains stable around the frozen envelope.
+Ablate the evaluation framework, not the ResNet architecture. Compare the same frozen predictions under:
 
-### 3. Framework ablation
-
-This is an ablation of the evaluation framework, not the ResNet architecture.
-
-Compare using the same frozen predictions:
-
-- raw sigmoid probabilities vs fold-9 global Platt calibration;
+- raw sigmoid vs fold-9 global Platt calibration;
 - discrimination-only gate;
 - calibration-only gate;
 - full gate minus slope criterion;
 - full gate minus intercept criterion;
 - full gate minus positive Brier-skill criterion;
-- alternative support thresholds as clearly secondary sensitivity settings.
+- clearly labelled alternative support thresholds.
 
-Do not change residual blocks, kernels, channels, or architecture depth. TRUST-ECG does not claim a novel backbone.
+Do not change residual blocks, kernels, channels, depth, optimizer, or training procedure.
 
-### 4. Lightweight ResNet XAI
+## 4. Lightweight ResNet XAI
 
-Waveform XAI must remain low-compute and clinically interpretable.
-
-Use:
+Use waveform-appropriate, low-compute methods:
 
 - lead-wise occlusion;
 - temporal-window occlusion;
-- Integrated Gradients on a small, fixed representative sample.
+- Integrated Gradients.
 
-Do not run KernelSHAP, waveform-level LIME, or feature-wise PDP/ICE/ALE across 60,000 raw ECG samples.
+Hard compute caps:
 
-Sampling must be deterministic and limited. The XAI output should emphasize:
+- occlusion evaluation sample: at most **64 ECGs per source** (PTB-XL internal test plus each of the three external certification sources), selected deterministically with a fixed coverage-oriented rule;
+- temporal occlusion: **10 non-overlapping 1-second windows** per ECG;
+- lead occlusion: **12 individual leads** per ECG;
+- Integrated Gradients: at most **8 ECGs per source**, **24 integration steps** each;
+- if a requested label/source stratum lacks support, report `not estimable` rather than expanding the sample.
 
-- per-label lead importance;
-- coarse temporal attribution;
-- attribution stability between PTB-XL and external domains;
-- comparison of certified vs calibration-failure cases when support permits.
+Primary outputs are per-label lead importance, coarse temporal attribution, and rank/stability comparisons between internal and external sources. Certified vs calibration-failure attribution comparisons are secondary when support permits.
 
-XAI must never be presented as causal interpretation.
+Do not use KernelSHAP, waveform-level LIME, PDP, ICE, or ALE across 60,000 raw ECG samples. XAI is descriptive and must never be presented as causal.
 
-### 5. Classical XAI for the 144-feature Logistic reference
+## 5. Classical XAI for the 144-feature Logistic reference
 
-The handcrafted Logistic reference is the appropriate low-cost model for classical tabular XAI.
+Use the low-capacity handcrafted Logistic model for conventional tabular XAI:
 
-Generate:
-
-- SHAP global bar plot;
+- exact/linear SHAP global bar plot;
 - SHAP beeswarm;
-- representative SHAP waterfall plots;
-- LIME local explanations for a small fixed case set;
+- SHAP waterfall plots for a deterministic small case set;
+- LIME local explanations;
 - PDP and ICE for the top 4-6 continuous features;
 - ALE for the same top 4-6 features.
 
-Prefer exact/linear SHAP appropriate for Logistic Regression. Avoid expensive model-agnostic KernelSHAP unless no exact implementation is available.
+Compute caps:
 
-All XAI results are descriptive secondary evidence.
+- SHAP may use all available aggregate-safe evaluation feature rows if the exact linear method is used;
+- waterfall/LIME examples: at most **2 examples per diagnosis** (one positive and one negative where available), with no record identifiers in outputs;
+- PDP/ICE/ALE: at most **6 features** selected by frozen/global Logistic importance, never by external performance.
 
-### 6. Signal robustness analysis
+Avoid model-agnostic KernelSHAP unless exact/linear SHAP is unavailable.
 
-Use the frozen primary model only. Do not retrain.
+## 6. Signal robustness analysis
 
-Apply predefined mild perturbations at inference:
+Use the frozen primary model only; do not retrain. Predefine a small practical perturbation suite:
 
-- additive Gaussian noise at a small fixed set of SNR levels;
-- gain scaling;
-- baseline-wander perturbation;
-- small temporal shift/crop shift;
-- selected single-lead dropout and grouped lead dropout.
+- additive Gaussian noise at SNR 20 dB;
+- gain scaling at 0.9x and 1.1x;
+- mild baseline wander using a fixed low-frequency sinusoidal perturbation;
+- temporal shift of ±100 ms with deterministic padding/cropping;
+- limb-lead dropout group;
+- precordial-lead dropout group.
 
-Report relative changes in PR-AUC, ROC-AUC, Brier score, and calibration where estimable. The goal is not adversarial robustness; it is practical acquisition/signal sensitivity.
+Run robustness first on the internal test and external certification partitions only. Report relative changes in PR-AUC, ROC-AUC, Brier, and calibration where estimable. This is practical signal sensitivity, not adversarial robustness.
 
-### 7. Certification uncertainty
+## 7. Certification uncertainty
 
-Using the existing bootstrap/statistical infrastructure, estimate uncertainty for the metrics that determine certification.
+Use existing bootstrap/statistical infrastructure to estimate uncertainty for the metrics that drive the official gate:
 
-Report, where estimable:
-
-- intervals for PR-AUC/prevalence ratio;
-- intervals for calibration slope;
-- intervals for calibration intercept;
-- intervals for Brier skill;
+- PR-AUC/prevalence ratio;
+- calibration slope;
+- calibration intercept;
+- Brier skill;
 - proportion of bootstrap replicates satisfying the complete official gate.
 
-Do not replace the primary point-estimate certification matrix. Present the bootstrap gate-satisfaction rate as secondary uncertainty evidence.
+Do not replace the point-estimate certification matrix. The bootstrap gate-satisfaction rate is secondary uncertainty evidence.
 
-### 8. Duplicate and near-duplicate audit
+## 8. Duplicate and near-duplicate audit
 
-For external certification vs recovery partitions:
+Across external certification vs recovery partitions:
 
-- check exact waveform hashes where possible;
+- test exact waveform hashes where possible;
 - derive lightweight waveform fingerprints for near-duplicate screening;
-- flag suspicious high-similarity cross-partition pairs for manual aggregate audit;
-- never commit patient- or record-level waveform data or identifiers.
+- aggregate suspicious high-similarity cross-partition matches;
+- never commit raw waveforms, record IDs, or unrestricted record-level similarity tables.
 
-Output only aggregate counts, maximum similarities, thresholds, and audit status.
+Output only aggregate counts, maximum/quantile similarity summaries, thresholds, and audit status. This audit may reduce overlap concern but must not claim patient independence when patient identifiers do not exist.
 
-This audit addresses residual dependence risk where patient IDs are unavailable; it must not claim proof of patient independence when identifiers do not exist.
+## 9. Phase-1 estimability reporting
 
-### 9. Phase-1 estimability reporting
-
-Reuse existing Phase-1 records/results.
-
-For every candidate pair, label budget, and recalibration method report:
+Reuse existing Phase-1 outputs. For every candidate pair, budget, and method report:
 
 - repeats requested;
 - estimable repeats;
 - non-estimable repeats;
-- reasons for non-estimability;
+- non-estimability reasons;
 - recovery-envelope success count/rate among estimable repeats;
-- uncertainty interval for the recovery rate.
+- Wilson 95% interval for the recovery rate.
 
 No imputation of non-estimable repeats.
 
-### 10. Statistical cleanup
+## 10. Statistical cleanup
 
-Retain bootstrap confidence intervals for performance differences.
+Retain bootstrap confidence intervals. For formal model-comparison claims, add paired randomization/permutation tests when prediction-level pairing is available. Existing bootstrap tail probabilities must be labelled as bootstrap tail probabilities unless the implementation is changed to a formal null procedure. Apply Benjamini-Hochberg control to coherent secondary-test families.
 
-For formal model-comparison claims, add a paired randomization/permutation test where prediction-level pairing is available. Existing bootstrap tail probabilities must be labelled accurately and not described as classical null-hypothesis p-values unless the implementation is changed accordingly.
+## 11. Subgroup analysis
 
-Benjamini-Hochberg multiplicity control remains appropriate for families of secondary tests.
+Run only where reliable harmonized metadata and adequate support exist. Primary subgroups are sex and age bands. Results are descriptive secondary analyses; no subgroup-specific recalibration, model selection, or threshold tuning is allowed. Missing/unreliable metadata produce `not estimable`.
 
-### 11. Subgroup analysis
+## 12. Compute profile
 
-Run only where metadata are present, harmonized, and adequately supported.
-
-Primary targets:
-
-- sex;
-- age bands.
-
-Subgroup results are descriptive secondary analyses. No subgroup-specific recalibration, model selection, or threshold tuning is permitted.
-
-If a source lacks reliable metadata, report `not estimable` rather than infer values.
-
-### 12. Compute profile
-
-Report a minimal practical profile:
-
-- trainable parameter count;
-- serialized model size;
-- representative CPU inference throughput/latency;
-- training duration and hardware from workflow metadata where reliably available.
-
-No extensive hardware benchmarking is required.
+Report trainable parameter count, serialized model size, representative CPU inference latency/throughput, and training duration/hardware from trustworthy workflow metadata. No extensive hardware benchmarking.
 
 ## Output structure
 
-Add a separate secondary-analysis namespace, for example:
+Use a separate aggregate-only namespace such as:
 
 `secondary_results/trust_ecg_v04/`
 
-with aggregate-only artifacts such as:
+Expected artifacts include:
 
 - `envelope_sensitivity.csv/json`;
 - `framework_ablation.csv/json`;
@@ -261,7 +206,7 @@ with aggregate-only artifacts such as:
 - `robustness.csv/json`;
 - `xai_resnet_summary.json`;
 - `xai_logistic_summary.json`;
-- figure files for publication;
+- publication figures;
 - `seed_stability.csv/json`;
 - `secondary_sha256_manifest.json`.
 
@@ -269,7 +214,7 @@ No record-level probabilities, raw waveforms, record IDs, or unrestricted per-re
 
 ## Code organization
 
-Prefer new isolated modules rather than modifying frozen scientific files. Likely additions:
+Prefer new isolated modules rather than modifying frozen scientific files:
 
 - `src/trust_icu/ecg_secondary_sensitivity.py`;
 - `src/trust_icu/ecg_secondary_xai.py`;
@@ -278,62 +223,45 @@ Prefer new isolated modules rather than modifying frozen scientific files. Likel
 - `src/trust_icu/ecg_secondary_statistics.py`;
 - one orchestration/reporting script under `scripts/`;
 - focused tests under `tests/`;
-- one secondary GitHub Actions workflow that reuses verified primary artifacts and keeps the two extra seed trainings as separate expensive jobs.
+- one secondary GitHub Actions workflow, with the two extra seed trainings isolated as expensive jobs.
 
-Frozen files should not be changed unless a non-scientific adapter is strictly necessary. If any change to a frozen protocol or primary implementation appears necessary, stop and obtain explicit scientific approval instead of silently changing it.
+Frozen primary files must not change unless a non-scientific adapter is strictly necessary. If implementation appears to require a protocol/scientific change, stop for explicit scientific approval.
 
 ## Dependency policy
 
-Keep dependencies lightweight.
-
-Preferred:
-
-- existing NumPy/SciPy/scikit-learn/PyTorch/Matplotlib stack;
-- `shap` only if needed for reproducible Logistic SHAP plots;
-- `lime` only for the small tabular Logistic analysis;
-- use a compact in-repo ALE implementation if practical rather than adding a large dependency;
-- implement Integrated Gradients and occlusion directly with PyTorch unless a small, well-justified dependency is preferable.
-
-Do not add heavy explainability frameworks solely for convenience.
+Keep dependencies lightweight. Prefer existing NumPy/SciPy/scikit-learn/PyTorch/Matplotlib. Add `shap` only if required for reproducible linear-SHAP plots and `lime` only for the small Logistic analysis. Prefer a compact in-repo ALE implementation. Implement Integrated Gradients and occlusion directly with PyTorch unless a small dependency is clearly better. Do not add a heavy XAI framework solely for convenience.
 
 ## Testing and fail-closed behavior
 
-Add tests for:
+Add tests that verify:
 
-- sensitivity classification reproduces the official gate exactly at official thresholds;
-- framework ablation never mutates primary artifacts;
-- deterministic XAI sample selection;
-- occlusion preserves tensor shape and masks only the intended leads/windows;
-- robustness perturbations are deterministic under fixed seeds;
-- duplicate fingerprinting detects exact synthetic duplicates and does not expose record-level output;
-- Phase-1 estimability summaries preserve non-estimable repeats;
+- official sensitivity settings reproduce the existing official gate exactly;
+- secondary analyses cannot overwrite primary artifacts;
+- deterministic XAI sample selection and hard sample caps;
+- occlusion masks only intended leads/windows and preserves tensor shape;
+- Integrated Gradients enforces the 8-per-source/24-step caps;
+- robustness perturbations are deterministic;
+- duplicate fingerprinting detects exact synthetic duplicates without exposing IDs;
+- Phase-1 estimability preserves non-estimable repeats;
 - secondary reports verify primary protocol/model/report hashes;
-- output privacy checks reject record-level identifiers or raw waveform exports;
-- seed-stability aggregation treats `20260808` as primary and cannot replace it automatically.
+- privacy checks reject record-level identifiers and raw waveform exports;
+- seed aggregation treats `20260808` as primary and cannot auto-replace it.
 
 All existing TRUST-ECG integrity, unit, and synthetic end-to-end checks must continue to pass.
 
 ## Publication integration
 
-The manuscript should preserve the primary Results section and add compact secondary evidence under headings such as:
-
-- `Sensitivity and Initialization Stability`;
-- `Explainability and Attribution Stability`;
-- `Signal Robustness and Residual Leakage Audit`.
-
-Use multi-panel figures to avoid page inflation. The manuscript must explicitly label all new analyses as secondary/sensitivity analyses.
-
-The primary claims may be strengthened only when supported by these results. If sensitivity, robustness, or seed replication weakens the original interpretation, report that transparently rather than changing analysis definitions.
+Preserve the primary Results section. Add compact secondary evidence under headings such as `Sensitivity and Initialization Stability`, `Explainability and Attribution Stability`, and `Signal Robustness and Residual Leakage Audit`. Use multi-panel figures to control page count. Every new analysis must be labelled secondary/sensitivity evidence.
 
 ## Success criteria
 
-The secondary package is complete when:
+The package is complete when:
 
-1. all zero/low-compute analyses run reproducibly against the frozen primary artifacts;
-2. XAI and robustness outputs are aggregate/publication-safe;
-3. exact and near-duplicate audit results are reported without overclaiming patient independence;
-4. two additional seeds complete under the exact frozen training protocol;
+1. zero/low-compute analyses run reproducibly against frozen primary artifacts;
+2. XAI and robustness outputs are aggregate/publication-safe and obey compute caps;
+3. overlap auditing is reported without overclaiming patient independence;
+4. the two additional seeds complete under the exact frozen training protocol;
 5. three-seed status stability is summarized without replacing the primary seed;
 6. all repository integrity and unit tests pass;
-7. every secondary artifact carries provenance back to the frozen primary protocol/model/report hashes;
-8. the manuscript distinguishes primary from secondary evidence unambiguously.
+7. every secondary artifact is provenance-linked to frozen primary hashes;
+8. the manuscript distinguishes primary from secondary evidence unambiguously and reports contrary secondary findings transparently.
