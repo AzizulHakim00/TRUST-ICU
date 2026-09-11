@@ -4,4 +4,4 @@ Wait for exact seed execution run 34636087225 to complete successfully, then agg
 No seed selection is permitted. Primary 20260808 remains primary.
 Use only aggregate Phase-0 reports and audited seed-only protocol provenance.
 
-Retry 2: bind each secondary report to the SHA-256 of its audited seed-mutated protocol; do not expect random_seed inside the finalized Phase-0 report.
+Retry 3: run the corrected provenance-bound aggregation in an isolated concurrency group so obsolete watcher runs cannot delay this authoritative execution.
