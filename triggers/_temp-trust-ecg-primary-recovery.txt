@@ -5,3 +5,5 @@ Accept only model SHA 1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b
 Preserve the exact checkpoint in a secondary-only cache/artifact before the historical Phase-1 cleanup can delete the ephemeral primary result cache.
 After successful capture, run the approved direct frozen-ResNet audit, XAI, and robustness modes and publish aggregate-only artifacts.
 Fail closed on any mismatch.
+
+Retry 2: poll the ephemeral exact-result cache every 30 seconds and first honor an already-preserved recovery cache; isolated concurrency prevents the older slower watcher from blocking this authoritative capture.
