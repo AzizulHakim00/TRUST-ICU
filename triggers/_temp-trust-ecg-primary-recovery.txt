@@ -1,0 +1,7 @@
+TRUST-ECG exact primary recovery capture and secondary waveform evidence
+
+Watch for the exact frozen-primary result cache produced by deterministic reconstruction.
+Accept only model SHA 1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358 and report SHA 9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9.
+Preserve the exact checkpoint in a secondary-only cache/artifact before the historical Phase-1 cleanup can delete the ephemeral primary result cache.
+After successful capture, run the approved direct frozen-ResNet audit, XAI, and robustness modes and publish aggregate-only artifacts.
+Fail closed on any mismatch.
