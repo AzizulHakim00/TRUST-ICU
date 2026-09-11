@@ -1,0 +1,186 @@
+name: TRUST-ECG Temporary Primary Recovery and Waveform Evidence
+
+on:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - "triggers/_temp-trust-ecg-primary-recovery.txt"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: trust-ecg-primary-recovery-capture
+  cancel-in-progress: false
+
+env:
+  FEATURE_SHA: f0d36f8ea177c4a32059b483e5772ca83e2b7f3c
+  DATA_KEY: trust-ecg-v04-verified-data-d78cc8bb6f938f3a-2454838e4ee3b9ad-52dcb28880384a66
+  RECOVERED_PRIMARY_KEY: trust-ecg-v04-secondary-primary-recovered-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68
+  RUNTIME_ROOT: ${{ github.workspace }}/.trust_ecg_runtime
+
+jobs:
+  capture_window_1:
+    uses: ./.github/workflows/_temp-trust-ecg-primary-capture-window.yml
+    with:
+      incoming_found: "false"
+      window_number: "1"
+      launch_token: ${{ github.run_id }}
+
+  capture_window_2:
+    needs: capture_window_1
+    if: ${{ always() && needs.capture_window_1.result == 'success' }}
+    uses: ./.github/workflows/_temp-trust-ecg-primary-capture-window.yml
+    with:
+      incoming_found: ${{ needs.capture_window_1.outputs.found }}
+      window_number: "2"
+      launch_token: ${{ github.run_id }}
+
+  capture_window_3:
+    needs: capture_window_2
+    if: ${{ always() && needs.capture_window_2.result == 'success' }}
+    uses: ./.github/workflows/_temp-trust-ecg-primary-capture-window.yml
+    with:
+      incoming_found: ${{ needs.capture_window_2.outputs.found }}
+      window_number: "3"
+      launch_token: ${{ github.run_id }}
+
+  capture_window_4:
+    needs: capture_window_3
+    if: ${{ always() && needs.capture_window_3.result == 'success' }}
+    uses: ./.github/workflows/_temp-trust-ecg-primary-capture-window.yml
+    with:
+      incoming_found: ${{ needs.capture_window_3.outputs.found }}
+      window_number: "4"
+      launch_token: ${{ github.run_id }}
+
+  secondary_waveform:
+    needs: capture_window_4
+    if: ${{ always() && needs.capture_window_4.result == 'success' && needs.capture_window_4.outputs.found == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [audit, xai, robustness]
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FEATURE_SHA }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Restore exact verified ECG data
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .trust_ecg_runtime/primary
+            .trust_ecg_runtime/evidence
+            .trust_ecg_runtime/work
+          key: ${{ env.DATA_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Restore hash-verified recovered frozen primary ResNet result
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/results
+          key: ${{ env.RECOVERED_PRIMARY_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Install CPU frozen-ResNet secondary runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0"
+          pip install -e ".[ecg-waveform,reporting]"
+
+      - name: Verify immutable primary identities
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('.trust_ecg_runtime')
+          report = json.loads((root / 'results/open_ecg_phase0_resnet_report.json').read_text())
+          expected = {
+              'report_sha256': '9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9',
+              'model_sha256': '1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358',
+              'model_index_sha256': '6b29ef5871721d5426b4ed6f3f5c3f17ff303a5e138c5545c2e5a3f1387116f7',
+              'label_manifest_sha256': 'd78cc8bb6f938f3a2cbad0572f21c40b72c146a9310d56223b010fae8d98f7be',
+          }
+          for key, value in expected.items():
+              if report.get(key) != value:
+                  raise SystemExit(f'Immutable primary mismatch for {key}: {report.get(key)!r}')
+          print('immutable primary identities verified')
+          PY
+
+      - name: Run secondary ${{ matrix.mode }} analysis
+        run: |
+          set -euo pipefail
+          OUT="$RUNTIME_ROOT/secondary/${{ matrix.mode }}"
+          mkdir -p "$OUT"
+          python scripts/run_open_ecg_secondary_waveform.py \
+            --mode "${{ matrix.mode }}" \
+            --phase0-report "$RUNTIME_ROOT/results/open_ecg_phase0_resnet_report.json" \
+            --primary-data-root "$RUNTIME_ROOT/primary" \
+            --model-index "$RUNTIME_ROOT/work/model_index/open_ecg_model_index.csv" \
+            --model-index-audit "$RUNTIME_ROOT/work/model_index/open_ecg_model_index_audit.json" \
+            --label-manifest "$RUNTIME_ROOT/evidence/open_ecg_label_manifest.json" \
+            --normalization-stats "$RUNTIME_ROOT/work/waveform/open_ecg_normalization_stats.json" \
+            --checkpoint "$RUNTIME_ROOT/results/open_ecg_resnet_checkpoint.pt" \
+            --global-calibration "$RUNTIME_ROOT/results/open_ecg_resnet_calibration.json" \
+            --output-root "$OUT" \
+            --bootstrap-repeats 1000 \
+            --device cpu
+
+      - name: Verify aggregate-only output manifest
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          mode = os.environ['MODE']
+          root = Path('.trust_ecg_runtime/secondary') / mode
+          manifest = json.loads((root / 'secondary_sha256_manifest.json').read_text())
+          if manifest['primary_analysis_unchanged'] is not True or manifest['secondary_evidence_only'] is not True:
+              raise SystemExit('Secondary safeguards missing')
+          forbidden = {'record_id', 'patient_id', 'predictions', 'logits', 'waveform', 'waveforms'}
+          for path in root.iterdir():
+              if not path.is_file() or path.suffix in {'.png', '.pdf'}:
+                  continue
+              text = path.read_text(encoding='utf-8').lower()
+              if any(f'"{key}"' in text for key in forbidden):
+                  raise SystemExit(f'Forbidden record-level key in {path.name}')
+          for name, expected in manifest['files'].items():
+              observed = hashlib.sha256((root / name).read_bytes()).hexdigest()
+              if observed != expected:
+                  raise SystemExit(f'Manifest mismatch for {name}')
+          print('secondary output manifest verified')
+          PY
+        env:
+          MODE: ${{ matrix.mode }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trust-ecg-secondary-${{ matrix.mode }}-${{ github.run_id }}
+          path: .trust_ecg_runtime/secondary/${{ matrix.mode }}
+          if-no-files-found: error
+          retention-days: 30
+
+  require_capture:
+    needs: [capture_window_4, secondary_waveform]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail closed unless exact primary was captured and all waveform modes passed
+        run: |
+          set -euo pipefail
+          test "${{ needs.capture_window_4.result }}" = "success"
+          test "${{ needs.capture_window_4.outputs.found }}" = "true"
+          test "${{ needs.secondary_waveform.result }}" = "success"
+          echo "Exact primary captured; audit, XAI, and robustness all completed."
