@@ -11,7 +11,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: trust-ecg-primary-recovery-capture
+  group: trust-ecg-primary-recovery-capture-v2
   cancel-in-progress: false
 
 env:
