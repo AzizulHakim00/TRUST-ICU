@@ -93,7 +93,8 @@ jobs:
         if: inputs.incoming_complete != 'true'
         run: |
           set -euo pipefail
-          test "$GITHUB_SHA" = "${{ inputs.feature_sha }}"
+          checked_out_sha=$(git rev-parse HEAD)
+          test "$checked_out_sha" = "${{ inputs.feature_sha }}"
           git fetch origin open-ecg-transportability --depth=1
           protected=(
             schemas/open_ecg_protocol.yaml
@@ -104,9 +105,9 @@ jobs:
             src/trust_icu/ecg_deep_phase0.py src/trust_icu/ecg_deep_phase0_v04.py
             src/trust_icu/ecg_signal.py src/trust_icu/ecg_waveform.py
           )
-          git diff --quiet origin/open-ecg-transportability "$GITHUB_SHA" -- "${protected[@]}" || {
+          git diff --quiet origin/open-ecg-transportability "$checked_out_sha" -- "${protected[@]}" || {
             echo "Frozen primary training implementation drift detected." >&2
-            git diff --name-only origin/open-ecg-transportability "$GITHUB_SHA" -- "${protected[@]}" >&2
+            git diff --name-only origin/open-ecg-transportability "$checked_out_sha" -- "${protected[@]}" >&2
             exit 1
           }
 
