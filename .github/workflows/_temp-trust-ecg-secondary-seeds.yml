@@ -1,0 +1,44 @@
+name: TRUST-ECG Temporary Secondary Seed Execution
+
+on:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - "triggers/_temp-trust-ecg-secondary-seeds.txt"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: trust-ecg-secondary-seeds-real
+  cancel-in-progress: false
+
+jobs:
+  seed_20260809:
+    uses: ./.github/workflows/_temp-trust-ecg-secondary-seed-chain.yml
+    with:
+      seed: "20260809"
+      feature_sha: "f0d36f8ea177c4a32059b483e5772ca83e2b7f3c"
+      launch_token: ${{ github.run_id }}-20260809
+
+  seed_20260810:
+    uses: ./.github/workflows/_temp-trust-ecg-secondary-seed-chain.yml
+    with:
+      seed: "20260810"
+      feature_sha: "f0d36f8ea177c4a32059b483e5772ca83e2b7f3c"
+      launch_token: ${{ github.run_id }}-20260810
+
+  verify_completion:
+    needs: [seed_20260809, seed_20260810]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both predeclared seeds to complete
+        run: |
+          set -euo pipefail
+          test "${{ needs.seed_20260809.result }}" = "success"
+          test "${{ needs.seed_20260810.result }}" = "success"
+          test "${{ needs.seed_20260809.outputs.complete }}" = "true"
+          test "${{ needs.seed_20260810.outputs.complete }}" = "true"
+          echo "Both secondary seeds completed without seed selection."
