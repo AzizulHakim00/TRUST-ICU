@@ -1,0 +1,66 @@
+name: TRUST-ECG temporary secondary-seed completion wait window
+
+on:
+  workflow_call:
+    inputs:
+      incoming_done:
+        required: true
+        type: string
+      seed_run_id:
+        required: true
+        type: string
+      window_number:
+        required: true
+        type: string
+    outputs:
+      done:
+        value: ${{ jobs.wait.outputs.done }}
+      success:
+        value: ${{ jobs.wait.outputs.success }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  wait:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      done: ${{ steps.publish.outputs.done }}
+      success: ${{ steps.publish.outputs.success }}
+    steps:
+      - name: Poll exact secondary-seed run
+        id: poll
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.seed_run_id }}
+          INCOMING_DONE: ${{ inputs.incoming_done }}
+        run: |
+          set -euo pipefail
+          done="$INCOMING_DONE"
+          success=false
+          if [ "$done" = "true" ]; then
+            conclusion=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '.conclusion')
+            test "$conclusion" = "success" && success=true
+          else
+            for attempt in $(seq 1 66); do
+              status=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '.status')
+              conclusion=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '.conclusion // ""')
+              echo "window=${{ inputs.window_number }} attempt=$attempt status=$status conclusion=$conclusion"
+              if [ "$status" = "completed" ]; then
+                done=true
+                test "$conclusion" = "success" && success=true
+                break
+              fi
+              sleep 300
+            done
+          fi
+          echo "done=$done" >> "$GITHUB_OUTPUT"
+          echo "success=$success" >> "$GITHUB_OUTPUT"
+
+      - name: Publish status
+        id: publish
+        run: |
+          echo "done=${{ steps.poll.outputs.done }}" >> "$GITHUB_OUTPUT"
+          echo "success=${{ steps.poll.outputs.success }}" >> "$GITHUB_OUTPUT"
