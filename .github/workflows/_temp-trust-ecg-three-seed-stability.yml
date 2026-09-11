@@ -1,0 +1,142 @@
+name: TRUST-ECG Temporary Three-Seed Stability Aggregation
+
+on:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - "triggers/_temp-trust-ecg-three-seed-stability.txt"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: trust-ecg-three-seed-stability
+  cancel-in-progress: false
+
+env:
+  SEED_RUN_ID: "34636087225"
+  FEATURE_SHA: "61825d856593c31524be0baf2cb0323ce7cf54c8"
+  PRIMARY_RUN_ID: "34250970214"
+  PRIMARY_ARTIFACT: "trust-ecg-statistical-addendum-34192937631"
+
+jobs:
+  wait_1:
+    uses: ./.github/workflows/_temp-trust-ecg-seed-run-wait-window.yml
+    with:
+      incoming_done: "false"
+      seed_run_id: "34636087225"
+      window_number: "1"
+
+  wait_2:
+    needs: wait_1
+    if: ${{ always() && needs.wait_1.result == 'success' }}
+    uses: ./.github/workflows/_temp-trust-ecg-seed-run-wait-window.yml
+    with:
+      incoming_done: ${{ needs.wait_1.outputs.done }}
+      seed_run_id: "34636087225"
+      window_number: "2"
+
+  wait_3:
+    needs: wait_2
+    if: ${{ always() && needs.wait_2.result == 'success' }}
+    uses: ./.github/workflows/_temp-trust-ecg-seed-run-wait-window.yml
+    with:
+      incoming_done: ${{ needs.wait_2.outputs.done }}
+      seed_run_id: "34636087225"
+      window_number: "3"
+
+  wait_4:
+    needs: wait_3
+    if: ${{ always() && needs.wait_3.result == 'success' }}
+    uses: ./.github/workflows/_temp-trust-ecg-seed-run-wait-window.yml
+    with:
+      incoming_done: ${{ needs.wait_3.outputs.done }}
+      seed_run_id: "34636087225"
+      window_number: "4"
+
+  aggregate:
+    needs: wait_4
+    if: ${{ always() && needs.wait_4.result == 'success' && needs.wait_4.outputs.done == 'true' && needs.wait_4.outputs.success == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FEATURE_SHA }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install secondary statistics runtime
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Download exact two secondary-seed artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/seed09 /tmp/seed10 /tmp/primary
+          gh run download "$SEED_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "trust-ecg-secondary-seed-20260809-${SEED_RUN_ID}-20260809" --dir /tmp/seed09
+          gh run download "$SEED_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "trust-ecg-secondary-seed-20260810-${SEED_RUN_ID}-20260810" --dir /tmp/seed10
+          gh run download "$PRIMARY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "$PRIMARY_ARTIFACT" --dir /tmp/primary
+
+      - name: Resolve provenance files and aggregate exactly three seeds
+        run: |
+          set -euo pipefail
+          primary=$(find /tmp/primary -name source_phase0_resnet_report.json -print -quit)
+          report09=$(find /tmp/seed09 -name open_ecg_phase0_resnet_report.json -print -quit)
+          audit09=$(find /tmp/seed09 -name protocol_audit.json -print -quit)
+          report10=$(find /tmp/seed10 -name open_ecg_phase0_resnet_report.json -print -quit)
+          audit10=$(find /tmp/seed10 -name protocol_audit.json -print -quit)
+          test -n "$primary"; test -n "$report09"; test -n "$audit09"; test -n "$report10"; test -n "$audit10"
+          python scripts/run_open_ecg_secondary_seed_stability.py \
+            --primary-report "$primary" \
+            --seed-20260809-report "$report09" \
+            --seed-20260809-audit "$audit09" \
+            --seed-20260810-report "$report10" \
+            --seed-20260810-audit "$audit10" \
+            --output-root secondary_results/trust_ecg_three_seed
+
+      - name: Verify aggregate-only stability manifest
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('secondary_results/trust_ecg_three_seed')
+          manifest = json.loads((root / 'secondary_three_seed_sha256_manifest.json').read_text())
+          assert manifest['primary_analysis_unchanged'] is True
+          assert manifest['secondary_evidence_only'] is True
+          for name, expected in manifest['files'].items():
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected
+          result = json.loads((root / 'secondary_three_seed_stability.json').read_text())
+          assert result['no_seed_selection'] is True
+          assert result['summary']['primary_seed'] == 20260808
+          assert result['summary']['primary_seed_replaced'] is False
+          print(json.dumps(result['summary'], indent=2, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trust-ecg-secondary-three-seed-${{ github.run_id }}
+          path: secondary_results/trust_ecg_three_seed
+          if-no-files-found: error
+          retention-days: 30
+
+  require_success:
+    needs: [wait_4, aggregate]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          set -euo pipefail
+          test "${{ needs.wait_4.outputs.done }}" = "true"
+          test "${{ needs.wait_4.outputs.success }}" = "true"
+          test "${{ needs.aggregate.result }}" = "success"
