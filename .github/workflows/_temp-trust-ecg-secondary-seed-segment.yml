@@ -1,0 +1,315 @@
+name: TRUST-ECG temporary secondary-seed segment
+
+on:
+  workflow_call:
+    inputs:
+      seed:
+        required: true
+        type: string
+      segment_number:
+        required: true
+        type: string
+      incoming_complete:
+        required: true
+        type: string
+      incoming_cache_key:
+        required: false
+        type: string
+        default: ""
+      incoming_result_cache_key:
+        required: false
+        type: string
+        default: ""
+      feature_sha:
+        required: true
+        type: string
+      launch_token:
+        required: true
+        type: string
+    outputs:
+      complete:
+        value: ${{ jobs.segment.outputs.complete }}
+      next_cache_key:
+        value: ${{ jobs.segment.outputs.next_cache_key }}
+      result_cache_key:
+        value: ${{ jobs.segment.outputs.result_cache_key }}
+      phase:
+        value: ${{ jobs.segment.outputs.phase }}
+      best_epoch:
+        value: ${{ jobs.segment.outputs.best_epoch }}
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  DATA_KEY: trust-ecg-v04-verified-data-d78cc8bb6f938f3a-2454838e4ee3b9ad-52dcb28880384a66
+  RUNTIME_ROOT: ${{ github.workspace }}/.trust_ecg_runtime
+  DATA_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/primary
+  EVIDENCE_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/evidence
+  WORK_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/work
+  SEED_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/secondary_seed_${{ inputs.seed }}
+  RESULTS_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/results
+  RESUME_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/resume
+  PROTOCOL_PATH: ${{ github.workspace }}/.trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/protocol.yaml
+  PROTOCOL_AUDIT: ${{ github.workspace }}/.trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/protocol_audit.json
+
+jobs:
+  segment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      complete: ${{ steps.publish.outputs.complete }}
+      next_cache_key: ${{ steps.publish.outputs.next_cache_key }}
+      result_cache_key: ${{ steps.publish.outputs.result_cache_key }}
+      phase: ${{ steps.publish.outputs.phase }}
+      best_epoch: ${{ steps.publish.outputs.best_epoch }}
+    steps:
+      - name: Validate requested secondary seed
+        run: |
+          set -euo pipefail
+          case "${{ inputs.seed }}" in
+            20260809|20260810) ;;
+            *) echo "Unapproved secondary seed" >&2; exit 1 ;;
+          esac
+
+      - name: Pass through completed secondary seed
+        if: inputs.incoming_complete == 'true'
+        run: echo "Secondary seed ${{ inputs.seed }} already completed; segment ${{ inputs.segment_number }} is a no-op."
+
+      - uses: actions/checkout@v4
+        if: inputs.incoming_complete != 'true'
+        with:
+          ref: ${{ inputs.feature_sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        if: inputs.incoming_complete != 'true'
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Verify frozen training implementation is unchanged
+        if: inputs.incoming_complete != 'true'
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "${{ inputs.feature_sha }}"
+          git fetch origin open-ecg-transportability --depth=1
+          protected=(
+            schemas/open_ecg_protocol.yaml
+            scripts/run_open_ecg_resnet_resumable.py
+            src/trust_icu/ecg_protocol.py src/trust_icu/ecg_resnet.py
+            src/trust_icu/ecg_baseline.py src/trust_icu/ecg_index.py src/trust_icu/ecg_manifest.py
+            src/trust_icu/ecg_phase0.py src/trust_icu/ecg_phase0_v04.py
+            src/trust_icu/ecg_deep_phase0.py src/trust_icu/ecg_deep_phase0_v04.py
+            src/trust_icu/ecg_signal.py src/trust_icu/ecg_waveform.py
+          )
+          git diff --quiet origin/open-ecg-transportability "$GITHUB_SHA" -- "${protected[@]}" || {
+            echo "Frozen primary training implementation drift detected." >&2
+            git diff --name-only origin/open-ecg-transportability "$GITHUB_SHA" -- "${protected[@]}" >&2
+            exit 1
+          }
+
+      - name: Restore exact verified ECG data
+        if: inputs.incoming_complete != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .trust_ecg_runtime/primary
+            .trust_ecg_runtime/evidence
+            .trust_ecg_runtime/work
+          key: ${{ env.DATA_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Restore incoming secondary-seed state
+        if: inputs.incoming_complete != 'true' && inputs.incoming_cache_key != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/resume
+          key: ${{ inputs.incoming_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Install exact CPU ResNet runtime
+        if: inputs.incoming_complete != 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0"
+          pip install -e ".[ecg-waveform]"
+          python - <<'PY'
+          import torch
+          print('torch', torch.__version__)
+          print('cuda_available', torch.cuda.is_available())
+          if torch.cuda.is_available():
+              raise SystemExit('Secondary-seed execution must remain CPU-only.')
+          PY
+
+      - name: Materialize protocol with seed-only mutation
+        if: inputs.incoming_complete != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$SEED_ROOT" "$RESULTS_ROOT" "$RESUME_ROOT"
+          python scripts/materialize_open_ecg_secondary_seed_protocol.py \
+            --protocol schemas/open_ecg_protocol.yaml \
+            --seed "${{ inputs.seed }}" \
+            --output "$PROTOCOL_PATH" \
+            --audit-output "$PROTOCOL_AUDIT"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          audit = json.loads(Path(os.environ['PROTOCOL_AUDIT']).read_text())
+          if audit['primary_seed'] != 20260808:
+              raise SystemExit('Primary seed drift')
+          if audit['replication_seed'] != int(os.environ['SECONDARY_SEED']):
+              raise SystemExit('Secondary seed mismatch')
+          if audit['only_scientific_mutation'] != 'phase0_models.resnet1d_fixed.random_seed':
+              raise SystemExit('Unexpected protocol mutation')
+          if audit['external_partition_seed_unchanged'] is not True:
+              raise SystemExit('External partition seed changed')
+          if audit['primary_protocol_unmodified'] is not True:
+              raise SystemExit('Primary protocol was modified')
+          print('seed-only protocol mutation verified')
+          PY
+        env:
+          SECONDARY_SEED: ${{ inputs.seed }}
+
+      - name: Verify immutable cached evidence identity
+        if: inputs.incoming_complete != 'true'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('.trust_ecg_runtime')
+          manifest = json.loads((root / 'evidence/open_ecg_label_manifest.json').read_text())
+          waveform = json.loads((root / 'work/waveform/open_ecg_waveform_audit.json').read_text())
+          index = json.loads((root / 'work/model_index/open_ecg_model_index_audit.json').read_text())
+          expected = {
+              'manifest': 'd78cc8bb6f938f3a2cbad0572f21c40b72c146a9310d56223b010fae8d98f7be',
+              'waveform': '2454838e4ee3b9ad0ee74819770e8c004fc4a7aaaa64508557775273506f0a78',
+              'index': '52dcb28880384a66fa5d8ee680edd781914b54348a54d5456a446d39ec55f8ae',
+          }
+          if manifest['manifest_sha256'] != expected['manifest']:
+              raise SystemExit('Label manifest mismatch')
+          if waveform['audit_sha256'] != expected['waveform']:
+              raise SystemExit('Waveform audit mismatch')
+          if index['audit_sha256'] != expected['index']:
+              raise SystemExit('Model-index audit mismatch')
+          if index.get('challenge_ptbxl_model_input') is not False:
+              raise SystemExit('Challenge-renamed PTB-XL entered model input')
+          print('immutable verified data identity confirmed')
+          PY
+
+      - name: Run resumable secondary-seed ResNet segment
+        if: inputs.incoming_complete != 'true'
+        run: |
+          set -euo pipefail
+          python scripts/run_open_ecg_resnet_resumable.py \
+            --primary-data-root "$DATA_ROOT" \
+            --model-index "$WORK_ROOT/model_index/open_ecg_model_index.csv" \
+            --model-index-audit "$WORK_ROOT/model_index/open_ecg_model_index_audit.json" \
+            --label-manifest "$EVIDENCE_ROOT/open_ecg_label_manifest.json" \
+            --waveform-audit "$WORK_ROOT/waveform/open_ecg_waveform_audit.json" \
+            --normalization-stats "$WORK_ROOT/waveform/open_ecg_normalization_stats.json" \
+            --protocol "$PROTOCOL_PATH" \
+            --output-root "$RESULTS_ROOT" \
+            --resume-checkpoint "$RESUME_ROOT/resnet_resume_state.pt" \
+            --status-output "$RESUME_ROOT/resnet_resume_status.json" \
+            --segment-seconds 14400 --device cpu --num-workers 0
+
+      - name: Derive secondary-seed continuation/result key
+        if: inputs.incoming_complete != 'true'
+        id: derive
+        run: |
+          set -euo pipefail
+          python - "$RESUME_ROOT/resnet_resume_status.json" "$GITHUB_OUTPUT" <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          status = json.loads(Path(sys.argv[1]).read_text())
+          seed = os.environ['SECONDARY_SEED']
+          segment = str(os.environ['SEGMENT_NUMBER']).zfill(2)
+          token = os.environ['LAUNCH_TOKEN']
+          if status['complete']:
+              result = (
+                  f"trust-ecg-v04-secondary-seed-{seed}-result-"
+                  + status['model_sha256'][:20] + '-' + status['report_sha256'][:20]
+              )
+              next_key = ''
+          else:
+              result = ''
+              next_key = (
+                  f"trust-ecg-v04-secondary-seed-{seed}-resume-{token}-s{segment}-"
+                  + status['resume_checkpoint_sha256'][:20]
+              )
+          with Path(sys.argv[2]).open('a', encoding='utf-8') as handle:
+              handle.write(f"complete={str(bool(status['complete'])).lower()}\n")
+              handle.write(f"next_cache_key={next_key}\n")
+              handle.write(f"result_cache_key={result}\n")
+              handle.write(f"phase={status['phase']}\n")
+              handle.write(f"best_epoch={status['best_epoch']}\n")
+          PY
+        env:
+          SECONDARY_SEED: ${{ inputs.seed }}
+          SEGMENT_NUMBER: ${{ inputs.segment_number }}
+          LAUNCH_TOKEN: ${{ inputs.launch_token }}
+
+      - name: Save next secondary-seed resume state
+        if: inputs.incoming_complete != 'true' && steps.derive.outputs.complete != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/resume
+          key: ${{ steps.derive.outputs.next_cache_key }}
+
+      - name: Save completed secondary-seed result
+        if: inputs.incoming_complete != 'true' && steps.derive.outputs.complete == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/results
+          key: ${{ steps.derive.outputs.result_cache_key }}
+
+      - name: Upload completed secondary-seed evidence
+        if: inputs.incoming_complete != 'true' && steps.derive.outputs.complete == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-ecg-secondary-seed-${{ inputs.seed }}-${{ inputs.launch_token }}
+          path: |
+            .trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/results/open_ecg_phase0_resnet_report.json
+            .trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/results/open_ecg_resnet_training_history.json
+            .trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/results/open_ecg_resnet_calibration.json
+            .trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/results/open_ecg_resnet_checkpoint.pt
+            .trust_ecg_runtime/secondary_seed_${{ inputs.seed }}/protocol_audit.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Delete superseded incoming seed resume cache
+        if: inputs.incoming_complete != 'true' && inputs.incoming_cache_key != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD_CACHE_KEY: ${{ inputs.incoming_cache_key }}
+        run: |
+          set +e
+          encoded=$(python - <<'PY'
+          import os
+          from urllib.parse import quote
+          print(quote(os.environ['OLD_CACHE_KEY'], safe=''))
+          PY
+          )
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/caches?key=${encoded}&ref=refs/heads/${GITHUB_REF_NAME}"
+          exit 0
+
+      - name: Publish segment outputs
+        id: publish
+        run: |
+          if [ "${{ inputs.incoming_complete }}" = "true" ]; then
+            echo "complete=true" >> "$GITHUB_OUTPUT"
+            echo "next_cache_key=${{ inputs.incoming_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "result_cache_key=${{ inputs.incoming_result_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "phase=complete" >> "$GITHUB_OUTPUT"
+            echo "best_epoch=" >> "$GITHUB_OUTPUT"
+          else
+            echo "complete=${{ steps.derive.outputs.complete }}" >> "$GITHUB_OUTPUT"
+            echo "next_cache_key=${{ steps.derive.outputs.next_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "result_cache_key=${{ steps.derive.outputs.result_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "phase=${{ steps.derive.outputs.phase }}" >> "$GITHUB_OUTPUT"
+            echo "best_epoch=${{ steps.derive.outputs.best_epoch }}" >> "$GITHUB_OUTPUT"
+          fi
