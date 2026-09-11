@@ -1,0 +1,155 @@
+name: TRUST-ECG Temporary Secondary Permutation Inference
+
+on:
+  push:
+    branches: [open-ecg-transportability]
+    paths:
+      - "triggers/_temp-trust-ecg-secondary-permutation.txt"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: trust-ecg-secondary-permutation
+  cancel-in-progress: false
+
+env:
+  FEATURE_SHA: "61825d856593c31524be0baf2cb0323ce7cf54c8"
+  DATA_KEY: trust-ecg-v04-verified-data-d78cc8bb6f938f3a-2454838e4ee3b9ad-52dcb28880384a66
+  RECOVERED_PRIMARY_KEY: trust-ecg-v04-secondary-primary-recovered-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68
+  RUNTIME_ROOT: ${{ github.workspace }}/.trust_ecg_runtime
+
+jobs:
+  wait_1:
+    uses: ./.github/workflows/_temp-trust-ecg-recovered-primary-wait-window.yml
+    with:
+      incoming_found: "false"
+      window_number: "1"
+
+  wait_2:
+    needs: wait_1
+    if: ${{ always() && needs.wait_1.result == 'success' }}
+    uses: ./.github/workflows/_temp-trust-ecg-recovered-primary-wait-window.yml
+    with:
+      incoming_found: ${{ needs.wait_1.outputs.found }}
+      window_number: "2"
+
+  wait_3:
+    needs: wait_2
+    if: ${{ always() && needs.wait_2.result == 'success' }}
+    uses: ./.github/workflows/_temp-trust-ecg-recovered-primary-wait-window.yml
+    with:
+      incoming_found: ${{ needs.wait_2.outputs.found }}
+      window_number: "3"
+
+  wait_4:
+    needs: wait_3
+    if: ${{ always() && needs.wait_3.result == 'success' }}
+    uses: ./.github/workflows/_temp-trust-ecg-recovered-primary-wait-window.yml
+    with:
+      incoming_found: ${{ needs.wait_3.outputs.found }}
+      window_number: "4"
+
+  permutation:
+    needs: wait_4
+    if: ${{ always() && needs.wait_4.result == 'success' && needs.wait_4.outputs.found == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FEATURE_SHA }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Restore exact verified ECG data
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .trust_ecg_runtime/primary
+            .trust_ecg_runtime/evidence
+            .trust_ecg_runtime/work
+          key: ${{ env.DATA_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Restore hash-verified recovered frozen primary ResNet
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/results
+          key: ${{ env.RECOVERED_PRIMARY_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Install exact CPU statistical runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0"
+          pip install -e ".[ecg-waveform,reporting]"
+
+      - name: Verify exact frozen primary before secondary inference
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('.trust_ecg_runtime/results/open_ecg_phase0_resnet_report.json').read_text())
+          assert report['model_sha256'] == '1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358'
+          assert report['report_sha256'] == '9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9'
+          assert Path('.trust_ecg_runtime/results/open_ecg_resnet_checkpoint.pt').is_file()
+          print('exact frozen primary verified')
+          PY
+
+      - name: Run true paired permutation inference
+        run: |
+          set -euo pipefail
+          python scripts/run_open_ecg_secondary_permutation.py \
+            --phase0-report "$RUNTIME_ROOT/results/open_ecg_phase0_resnet_report.json" \
+            --primary-data-root "$RUNTIME_ROOT/primary" \
+            --model-index "$RUNTIME_ROOT/work/model_index/open_ecg_model_index.csv" \
+            --model-index-audit "$RUNTIME_ROOT/work/model_index/open_ecg_model_index_audit.json" \
+            --label-manifest "$RUNTIME_ROOT/evidence/open_ecg_label_manifest.json" \
+            --normalization-stats "$RUNTIME_ROOT/work/waveform/open_ecg_normalization_stats.json" \
+            --checkpoint "$RUNTIME_ROOT/results/open_ecg_resnet_checkpoint.pt" \
+            --global-calibration "$RUNTIME_ROOT/results/open_ecg_resnet_calibration.json" \
+            --output-root secondary_results/trust_ecg_permutation \
+            --permutation-repeats 5000 \
+            --device cpu --num-workers 0
+
+      - name: Verify aggregate-only permutation artifact
+        run: |
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('secondary_results/trust_ecg_permutation')
+          manifest = json.loads((root / 'secondary_permutation_sha256_manifest.json').read_text())
+          assert manifest['primary_analysis_unchanged'] is True
+          assert manifest['secondary_evidence_only'] is True
+          for name, expected in manifest['files'].items():
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected
+          payload = json.loads((root / 'secondary_permutation_results.json').read_text())
+          assert payload['phase0_report_sha256'] == '9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9'
+          assert payload['phase0_model_sha256'] == '1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358'
+          assert payload['permutation_repeats'] == 5000
+          print('secondary permutation artifact verified')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trust-ecg-secondary-permutation-${{ github.run_id }}
+          path: secondary_results/trust_ecg_permutation
+          if-no-files-found: error
+          retention-days: 30
+
+  require_success:
+    needs: [wait_4, permutation]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          set -euo pipefail
+          test "${{ needs.wait_4.outputs.found }}" = "true"
+          test "${{ needs.permutation.result }}" = "success"
