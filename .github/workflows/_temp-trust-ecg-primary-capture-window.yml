@@ -1,0 +1,146 @@
+name: TRUST-ECG temporary primary recovery capture window
+
+on:
+  workflow_call:
+    inputs:
+      incoming_found:
+        required: true
+        type: string
+      window_number:
+        required: true
+        type: string
+      launch_token:
+        required: true
+        type: string
+    outputs:
+      found:
+        value: ${{ jobs.capture.outputs.found }}
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  EXPECTED_PRIMARY_KEY: trust-ecg-v04-primary-result-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68
+  RECOVERED_PRIMARY_KEY: trust-ecg-v04-secondary-primary-recovered-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68
+  EXPECTED_MODEL_SHA: 1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358
+  EXPECTED_REPORT_SHA: 9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      found: ${{ steps.publish.outputs.found }}
+    steps:
+      - name: Pass through an already captured primary result
+        if: inputs.incoming_found == 'true'
+        run: echo "Exact primary result was captured in an earlier window."
+
+      - name: Wait for the exact expected ephemeral primary cache
+        if: inputs.incoming_found != 'true'
+        id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          found=false
+          for attempt in $(seq 1 66); do
+            count=$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/caches" \
+              -f key="$EXPECTED_PRIMARY_KEY" \
+              -f ref="refs/heads/open-ecg-transportability" \
+              --jq '.actions_caches | length')
+            if [ "$count" -gt 0 ]; then
+              echo "Exact expected primary result cache appeared on attempt $attempt."
+              found=true
+              break
+            fi
+            echo "Capture window ${{ inputs.window_number }} attempt $attempt: exact primary result not present yet."
+            sleep 300
+          done
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Restore exact reconstructed primary result
+        if: inputs.incoming_found != 'true' && steps.wait.outputs.found == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/results
+          key: ${{ env.EXPECTED_PRIMARY_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Verify reconstructed primary identity and build recovery manifest
+        if: inputs.incoming_found != 'true' && steps.wait.outputs.found == 'true'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('.trust_ecg_runtime/results')
+          required = [
+              'open_ecg_phase0_resnet_report.json',
+              'open_ecg_resnet_checkpoint.pt',
+              'open_ecg_resnet_calibration.json',
+              'open_ecg_resnet_training_history.json',
+          ]
+          for name in required:
+              if not (root / name).is_file():
+                  raise SystemExit(f'Missing reconstructed primary file: {name}')
+
+          report = json.loads((root / 'open_ecg_phase0_resnet_report.json').read_text())
+          history = json.loads((root / 'open_ecg_resnet_training_history.json').read_text())
+          if report.get('model_sha256') != os.environ['EXPECTED_MODEL_SHA']:
+              raise SystemExit('Reconstructed primary model SHA does not match frozen primary.')
+          if report.get('report_sha256') != os.environ['EXPECTED_REPORT_SHA']:
+              raise SystemExit('Reconstructed Phase-0 report SHA does not match frozen primary.')
+          if history.get('execution_mode') != 'batch_resumable_cpu_exact_state':
+              raise SystemExit('Unexpected reconstructed execution mode.')
+          if history.get('best_epoch') != 26:
+              raise SystemExit('Unexpected reconstructed best epoch.')
+          if history.get('epochs_completed') != 33:
+              raise SystemExit('Unexpected reconstructed epoch count.')
+
+          manifest = {
+              'frozen_model_sha256': report['model_sha256'],
+              'frozen_report_sha256': report['report_sha256'],
+              'files': {},
+          }
+          for name in required:
+              manifest['files'][name] = hashlib.sha256((root / name).read_bytes()).hexdigest()
+          (root / 'secondary_primary_recovery_manifest.json').write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(manifest, indent=2, sort_keys=True))
+          PY
+
+      - name: Preserve exact primary result for secondary-only analyses
+        if: inputs.incoming_found != 'true' && steps.wait.outputs.found == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .trust_ecg_runtime/results
+          key: ${{ env.RECOVERED_PRIMARY_KEY }}
+
+      - name: Upload exact recovered primary checkpoint package
+        if: inputs.incoming_found != 'true' && steps.wait.outputs.found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-ecg-secondary-primary-recovered-${{ inputs.launch_token }}
+          path: |
+            .trust_ecg_runtime/results/open_ecg_phase0_resnet_report.json
+            .trust_ecg_runtime/results/open_ecg_resnet_checkpoint.pt
+            .trust_ecg_runtime/results/open_ecg_resnet_calibration.json
+            .trust_ecg_runtime/results/open_ecg_resnet_training_history.json
+            .trust_ecg_runtime/results/secondary_primary_recovery_manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish capture status
+        id: publish
+        run: |
+          if [ "${{ inputs.incoming_found }}" = "true" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=${{ steps.wait.outputs.found }}" >> "$GITHUB_OUTPUT"
+          fi
