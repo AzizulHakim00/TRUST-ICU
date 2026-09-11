@@ -1,0 +1,5 @@
+TRUST-ECG secondary paired permutation inference
+
+Wait for the hash-verified recovered frozen primary checkpoint, then rerun the frozen ResNet and handcrafted Logistic comparison on aligned records and compute true two-sided paired random-swap permutation p-values with 5000 replicates.
+Keep historical bootstrap confidence intervals untouched. This is secondary statistical cleanup only.
+No record-level outputs may be uploaded.
