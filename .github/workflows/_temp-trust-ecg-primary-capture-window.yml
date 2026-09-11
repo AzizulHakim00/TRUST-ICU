@@ -37,7 +37,7 @@ jobs:
         if: inputs.incoming_found == 'true'
         run: echo "Exact primary result was captured in an earlier window."
 
-      - name: Wait for the exact expected ephemeral primary cache
+      - name: Detect preserved result or rapidly capture exact ephemeral primary cache
         if: inputs.incoming_found != 'true'
         id: wait
         env:
@@ -45,23 +45,37 @@ jobs:
         run: |
           set -euo pipefail
           found=false
-          for attempt in $(seq 1 66); do
-            count=$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/caches" \
-              -f key="$EXPECTED_PRIMARY_KEY" \
-              -f ref="refs/heads/open-ecg-transportability" \
-              --jq '.actions_caches | length')
-            if [ "$count" -gt 0 ]; then
-              echo "Exact expected primary result cache appeared on attempt $attempt."
-              found=true
-              break
-            fi
-            echo "Capture window ${{ inputs.window_number }} attempt $attempt: exact primary result not present yet."
-            sleep 300
-          done
+          source=none
+
+          recovered_count=$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/caches" \
+            -f key="$RECOVERED_PRIMARY_KEY" \
+            -f ref="refs/heads/open-ecg-transportability" \
+            --jq '.actions_caches | length')
+          if [ "$recovered_count" -gt 0 ]; then
+            echo "Hash-verified secondary recovery cache already exists."
+            found=true
+            source=recovered
+          else
+            for attempt in $(seq 1 660); do
+              count=$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/caches" \
+                -f key="$EXPECTED_PRIMARY_KEY" \
+                -f ref="refs/heads/open-ecg-transportability" \
+                --jq '.actions_caches | length')
+              if [ "$count" -gt 0 ]; then
+                echo "Exact expected ephemeral primary result appeared on attempt $attempt."
+                found=true
+                source=ephemeral
+                break
+              fi
+              echo "Capture window ${{ inputs.window_number }} attempt $attempt: exact primary result not present yet."
+              sleep 30
+            done
+          fi
           echo "found=$found" >> "$GITHUB_OUTPUT"
+          echo "source=$source" >> "$GITHUB_OUTPUT"
 
       - name: Restore exact reconstructed primary result
-        if: inputs.incoming_found != 'true' && steps.wait.outputs.found == 'true'
+        if: inputs.incoming_found != 'true' && steps.wait.outputs.source == 'ephemeral'
         uses: actions/cache/restore@v4
         with:
           path: .trust_ecg_runtime/results
@@ -69,7 +83,7 @@ jobs:
           fail-on-cache-miss: true
 
       - name: Verify reconstructed primary identity and build recovery manifest
-        if: inputs.incoming_found != 'true' && steps.wait.outputs.found == 'true'
+        if: inputs.incoming_found != 'true' && steps.wait.outputs.source == 'ephemeral'
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -116,14 +130,14 @@ jobs:
           PY
 
       - name: Preserve exact primary result for secondary-only analyses
-        if: inputs.incoming_found != 'true' && steps.wait.outputs.found == 'true'
+        if: inputs.incoming_found != 'true' && steps.wait.outputs.source == 'ephemeral'
         uses: actions/cache/save@v4
         with:
           path: .trust_ecg_runtime/results
           key: ${{ env.RECOVERED_PRIMARY_KEY }}
 
       - name: Upload exact recovered primary checkpoint package
-        if: inputs.incoming_found != 'true' && steps.wait.outputs.found == 'true'
+        if: inputs.incoming_found != 'true' && steps.wait.outputs.source == 'ephemeral'
         uses: actions/upload-artifact@v4
         with:
           name: trust-ecg-secondary-primary-recovered-${{ inputs.launch_token }}
