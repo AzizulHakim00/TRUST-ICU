@@ -11,7 +11,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: trust-ecg-three-seed-stability
+  group: trust-ecg-three-seed-stability-corrected-v2
   cancel-in-progress: false
 
 env:
