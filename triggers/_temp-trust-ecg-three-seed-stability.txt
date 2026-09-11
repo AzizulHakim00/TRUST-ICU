@@ -1,0 +1,5 @@
+TRUST-ECG three-seed secondary stability aggregation
+
+Wait for exact seed execution run 34636087225 to complete successfully, then aggregate primary 20260808 with the predeclared secondary seeds 20260809 and 20260810.
+No seed selection is permitted. Primary 20260808 remains primary.
+Use only aggregate Phase-0 reports and audited seed-only protocol provenance.
