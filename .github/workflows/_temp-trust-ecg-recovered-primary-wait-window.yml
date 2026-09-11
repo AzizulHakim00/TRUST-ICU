@@ -1,0 +1,56 @@
+name: TRUST-ECG temporary recovered-primary cache wait window
+
+on:
+  workflow_call:
+    inputs:
+      incoming_found:
+        required: true
+        type: string
+      window_number:
+        required: true
+        type: string
+    outputs:
+      found:
+        value: ${{ jobs.wait.outputs.found }}
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  RECOVERED_PRIMARY_KEY: trust-ecg-v04-secondary-primary-recovered-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68
+
+jobs:
+  wait:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      found: ${{ steps.publish.outputs.found }}
+    steps:
+      - name: Wait for hash-verified recovered primary cache
+        id: poll
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INCOMING_FOUND: ${{ inputs.incoming_found }}
+        run: |
+          set -euo pipefail
+          found="$INCOMING_FOUND"
+          if [ "$found" != "true" ]; then
+            for attempt in $(seq 1 66); do
+              count=$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/caches" \
+                -f key="$RECOVERED_PRIMARY_KEY" \
+                -f ref="refs/heads/open-ecg-transportability" \
+                --jq '.actions_caches | length')
+              echo "window=${{ inputs.window_number }} attempt=$attempt cache_count=$count"
+              if [ "$count" -gt 0 ]; then
+                found=true
+                break
+              fi
+              sleep 300
+            done
+          fi
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Publish status
+        id: publish
+        run: echo "found=${{ steps.poll.outputs.found }}" >> "$GITHUB_OUTPUT"
