@@ -1,0 +1,7 @@
+TRUST-ECG v0.4 exact primary ResNet reconstruction for secondary validation
+
+Purpose: reconstruct the expired frozen primary result cache needed by direct-ResNet secondary XAI, robustness, overlap/subgroup audit, and seed-stability work.
+Scientific changes: none.
+Protocol/model/data changes: none; use the existing prospectively locked TRUST-ECG v0.4 protocol, seed 20260808, immutable verified-data cache, and original resumable runner.
+Acceptance gate: reconstruction must reproduce BOTH model SHA256 1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358 and Phase-0 report SHA256 9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9 before it may be used as the frozen primary model for secondary evidence.
+Fail closed: any hash mismatch means the reconstruction is not the original primary and must not be used for XAI or robustness.
