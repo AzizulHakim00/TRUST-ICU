@@ -1,0 +1,6 @@
+TRUST-ECG secondary ResNet seed execution
+
+Launch the two predeclared secondary ResNet initializations 20260809 and 20260810 in parallel.
+Scientific changes: only phase0_models.resnet1d_fixed.random_seed changes per the audited protocol copies.
+External partition seed remains frozen at 20260808.
+No seed selection is permitted; both runs are secondary evidence and the 20260808 frozen primary remains primary.
