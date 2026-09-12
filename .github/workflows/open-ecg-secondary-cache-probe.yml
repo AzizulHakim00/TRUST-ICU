@@ -1,53 +1,80 @@
-name: TRUST-ECG Secondary Verified Cache Probe
+name: TRUST-ECG Secondary Frozen Primary Cache Probe
 
 on:
   push:
     branches: [secondary-resnet-validation]
     paths:
       - "triggers/trust-ecg-secondary-cache-probe.txt"
+  workflow_dispatch:
 
 permissions:
   contents: read
   actions: read
 
 jobs:
-  probe:
+  probe-frozen-primary:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EXPECTED_MODEL_SHA: "1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358"
+      EXPECTED_REPORT_SHA: "9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9"
     steps:
       - uses: actions/checkout@v4
-      - name: Restore verified study data
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            .trust_ecg_runtime/primary
-            .trust_ecg_runtime/evidence
-            .trust_ecg_runtime/work
-          key: trust-ecg-v04-verified-data-d78cc8bb6f938f3a-2454838e4ee3b9ad-52dcb28880384a66
-          fail-on-cache-miss: true
-      - name: Restore frozen primary result
+
+      - name: Restore exact frozen primary result only
+        id: primary_cache
         uses: actions/cache/restore@v4
         with:
           path: .trust_ecg_runtime/results
           key: trust-ecg-v04-primary-result-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68
           fail-on-cache-miss: true
-      - name: Verify exact expected files
+
+      - name: Verify frozen primary identity
         run: |
           set -euo pipefail
+          test "${{ steps.primary_cache.outputs.cache-hit }}" = "true"
           test -f .trust_ecg_runtime/results/open_ecg_phase0_resnet_report.json
           test -f .trust_ecg_runtime/results/open_ecg_resnet_checkpoint.pt
           test -f .trust_ecg_runtime/results/open_ecg_resnet_calibration.json
           test -f .trust_ecg_runtime/results/open_ecg_resnet_training_history.json
-          test -f .trust_ecg_runtime/work/model_index/open_ecg_model_index.csv
-          test -f .trust_ecg_runtime/work/model_index/open_ecg_model_index_audit.json
-          test -f .trust_ecg_runtime/work/waveform/open_ecg_normalization_stats.json
-          test -f .trust_ecg_runtime/evidence/open_ecg_label_manifest.json
           python - <<'PY'
+          import hashlib
           import json
+          import os
           from pathlib import Path
-          report = json.loads(Path('.trust_ecg_runtime/results/open_ecg_phase0_resnet_report.json').read_text())
-          if report['report_sha256'] != '9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9':
-              raise SystemExit('Unexpected primary report SHA')
-          if report['model_sha256'] != '1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358':
-              raise SystemExit('Unexpected primary model SHA')
-          print('verified secondary cache access')
+
+          root = Path('.trust_ecg_runtime/results')
+          report_path = root / 'open_ecg_phase0_resnet_report.json'
+          model_path = root / 'open_ecg_resnet_checkpoint.pt'
+          report = json.loads(report_path.read_text())
+
+          expected_model = os.environ['EXPECTED_MODEL_SHA']
+          expected_report = os.environ['EXPECTED_REPORT_SHA']
+          observed_model = hashlib.sha256(model_path.read_bytes()).hexdigest()
+
+          if observed_model != expected_model:
+              raise SystemExit(f'Frozen checkpoint bytes mismatch: {observed_model}')
+          if report.get('model_sha256') != expected_model:
+              raise SystemExit(f'Primary report model binding mismatch: {report.get("model_sha256")}')
+          if report.get('report_sha256') != expected_report:
+              raise SystemExit(f'Primary report identity mismatch: {report.get("report_sha256")}')
+
+          history = json.loads((root / 'open_ecg_resnet_training_history.json').read_text())
+          print('cache_hit=true')
+          print('model_sha256=' + observed_model)
+          print('report_sha256=' + report['report_sha256'])
+          print('best_epoch=' + str(history.get('best_epoch')))
+          print('epochs_completed=' + str(history.get('epochs_completed', history.get('epochs_ran'))))
           PY
+
+      - name: Record recovery proof
+        if: success()
+        run: |
+          {
+            echo "# Frozen primary recovery proof"
+            echo
+            echo "- Cache hit: **true**"
+            echo "- Model SHA-256: \`$EXPECTED_MODEL_SHA\`"
+            echo "- Primary report SHA-256: \`$EXPECTED_REPORT_SHA\`"
+            echo "- No retraining or study-data reconstruction was performed."
+          } >> "$GITHUB_STEP_SUMMARY"
