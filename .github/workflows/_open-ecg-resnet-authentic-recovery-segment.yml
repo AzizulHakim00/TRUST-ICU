@@ -1,0 +1,341 @@
+name: TRUST-ECG authentic-primary recovery segment
+
+on:
+  workflow_call:
+    inputs:
+      segment_number:
+        required: true
+        type: string
+      incoming_complete:
+        required: true
+        type: string
+      incoming_cache_key:
+        required: false
+        type: string
+        default: ""
+      incoming_result_cache_key:
+        required: false
+        type: string
+        default: ""
+      expected_head_sha:
+        required: true
+        type: string
+      launch_token:
+        required: true
+        type: string
+    outputs:
+      complete:
+        value: ${{ jobs.segment.outputs.complete }}
+      next_cache_key:
+        value: ${{ jobs.segment.outputs.next_cache_key }}
+      result_cache_key:
+        value: ${{ jobs.segment.outputs.result_cache_key }}
+      phase:
+        value: ${{ jobs.segment.outputs.phase }}
+      best_epoch:
+        value: ${{ jobs.segment.outputs.best_epoch }}
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  ACTIVATION_PATH: triggers/open-ecg-resnet-phase0/activation.json
+  CONSTRAINTS_PATH: constraints/trust_ecg_v04_authentic_primary.txt
+  RUNTIME_ROOT: ${{ github.workspace }}/.trust_ecg_runtime
+  DATA_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/primary
+  EVIDENCE_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/evidence
+  WORK_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/work
+  RESULTS_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/results
+  RESUME_ROOT: ${{ github.workspace }}/.trust_ecg_runtime/resume
+  AUTHENTIC_SOURCE_SHA: 2c8761bfeca5f878c931fe9024967427e6d0f4c8
+  EXPECTED_MODEL_SHA: 1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358
+  EXPECTED_REPORT_SHA: 9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9
+
+jobs:
+  segment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      complete: ${{ steps.publish.outputs.complete }}
+      next_cache_key: ${{ steps.publish.outputs.next_cache_key }}
+      result_cache_key: ${{ steps.publish.outputs.result_cache_key }}
+      phase: ${{ steps.publish.outputs.phase }}
+      best_epoch: ${{ steps.publish.outputs.best_epoch }}
+
+    steps:
+      - name: Pass through an already exact-matched primary run
+        if: inputs.incoming_complete == 'true'
+        run: echo "Authentic primary already matched exactly; segment ${{ inputs.segment_number }} is a no-op."
+
+      - uses: actions/checkout@v4
+        if: inputs.incoming_complete != 'true'
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.expected_head_sha }}
+
+      - uses: actions/setup-python@v5
+        if: inputs.incoming_complete != 'true'
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Guard authentic scientific source and derive verified-data key
+        if: inputs.incoming_complete != 'true'
+        id: activation
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "${{ inputs.expected_head_sha }}"
+          python scripts/validate_open_ecg_resnet_activation.py --activation "$ACTIVATION_PATH"
+          protected=(
+            pyproject.toml schemas/open_ecg_protocol.yaml
+            src/trust_icu/ecg_baseline.py src/trust_icu/ecg_index.py src/trust_icu/ecg_manifest.py
+            src/trust_icu/ecg_phase0.py src/trust_icu/ecg_phase0_v04.py
+            src/trust_icu/ecg_deep_phase0.py src/trust_icu/ecg_deep_phase0_v04.py
+            src/trust_icu/ecg_resnet.py src/trust_icu/ecg_signal.py src/trust_icu/ecg_waveform.py
+            scripts/audit_original_ptbxl_labels.py scripts/build_open_ecg_model_index.py
+            scripts/fetch_open_ecg_headers.py scripts/fetch_open_ecg_primary_waveforms_v04.py
+            scripts/lock_open_ecg_labels.py scripts/prepare_open_ecg_data.py
+            scripts/prepare_open_ecg_waveforms.py scripts/run_open_ecg_phase0.py
+            scripts/run_open_ecg_resnet_resumable.py scripts/validate_open_ecg_resnet_activation.py
+            triggers/open-ecg-resnet-phase0/activation.json
+          )
+          git diff --quiet "$AUTHENTIC_SOURCE_SHA" "$GITHUB_SHA" -- "${protected[@]}" || {
+            echo "Authentic primary scientific-source drift detected." >&2
+            git diff --name-only "$AUTHENTIC_SOURCE_SHA" "$GITHUB_SHA" -- "${protected[@]}" >&2
+            exit 1
+          }
+          python - "$ACTIVATION_PATH" "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          from pathlib import Path
+          p = json.loads(Path(sys.argv[1]).read_text())
+          key = (
+              "trust-ecg-v04-verified-data-"
+              + p["label_manifest_sha256"][:16] + "-"
+              + p["waveform_audit_sha256"][:16] + "-"
+              + p["model_index_audit_sha256"][:16]
+          )
+          with Path(sys.argv[2]).open("a", encoding="utf-8") as handle:
+              handle.write(f"data_cache_key={key}\n")
+          PY
+
+      - name: Restore exact verified data
+        if: inputs.incoming_complete != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .trust_ecg_runtime/primary
+            .trust_ecg_runtime/evidence
+            .trust_ecg_runtime/work
+          key: ${{ steps.activation.outputs.data_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Restore incoming recovery resume state
+        if: inputs.incoming_complete != 'true' && inputs.incoming_cache_key != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .trust_ecg_runtime/resume
+          key: ${{ inputs.incoming_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Install provenance-matched CPU runtime
+        if: inputs.incoming_complete != 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install "pip==26.2.1" "setuptools==79.0.1"
+          pip install -c "$CONSTRAINTS_PATH" --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0"
+          pip install -c "$CONSTRAINTS_PATH" -e ".[ecg-waveform]"
+          python -m pip check
+
+      - name: Assert authentic resolved environment
+        if: inputs.incoming_complete != 'true'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from importlib.metadata import version
+          import torch
+
+          expected = {
+              "aiohappyeyeballs": "2.7.1", "aiohttp": "3.14.3", "aiosignal": "1.4.0",
+              "attrs": "26.1.0", "certifi": "2026.7.22", "cffi": "2.1.1",
+              "charset-normalizer": "3.5.1", "cloudpickle": "3.1.2", "contourpy": "1.3.3",
+              "cycler": "0.12.1", "filelock": "3.32.3", "fonttools": "4.64.0",
+              "frozenlist": "1.8.0", "fsspec": "2026.7.0", "idna": "3.19",
+              "Jinja2": "3.1.6", "joblib": "1.6.0", "kiwisolver": "1.5.1",
+              "MarkupSafe": "3.0.3", "matplotlib": "3.11.1", "mpmath": "1.3.0",
+              "multidict": "6.7.1", "narwhals": "2.25.0", "networkx": "3.6.1",
+              "numpy": "2.4.6", "packaging": "26.3", "pandas": "2.3.3",
+              "pillow": "12.3.0", "propcache": "0.5.2", "pycparser": "3.0",
+              "pyparsing": "3.3.2", "python-dateutil": "2.9.0.post0", "pytz": "2026.3.post1",
+              "PyYAML": "6.0.3", "requests": "2.34.2", "scikit-learn": "1.9.0",
+              "scipy": "1.17.1", "setuptools": "79.0.1", "six": "1.17.0",
+              "soundfile": "0.14.0", "sympy": "1.14.0", "threadpoolctl": "3.6.0",
+              "typing-extensions": "4.16.0", "tzdata": "2026.3", "urllib3": "2.7.0",
+              "wfdb": "4.3.1", "yarl": "1.24.5",
+          }
+          bad = []
+          for package, want in expected.items():
+              got = version(package)
+              print(f"{package}=={got}")
+              if got != want:
+                  bad.append((package, want, got))
+          print("torch", torch.__version__)
+          print("cuda_available", torch.cuda.is_available())
+          if torch.__version__ != "2.13.0+cpu":
+              bad.append(("torch", "2.13.0+cpu", torch.__version__))
+          if torch.cuda.is_available():
+              bad.append(("cuda_available", False, True))
+          if bad:
+              raise SystemExit(f"Authentic runtime mismatch: {bad}")
+          print("Authentic package-resolution gate passed.")
+          PY
+          python -m pip freeze | sort
+          echo "ImageOS=${ImageOS:-unknown}"
+          echo "ImageVersion=${ImageVersion:-unknown}"
+          lsb_release -a || true
+
+      - name: Verify cached evidence identity
+        if: inputs.incoming_complete != 'true'
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          activation = json.loads(Path(os.environ["ACTIVATION_PATH"]).read_text())
+          evidence = Path(os.environ["EVIDENCE_ROOT"])
+          work = Path(os.environ["WORK_ROOT"])
+          manifest = json.loads((evidence / "open_ecg_label_manifest.json").read_text())
+          waveform = json.loads((work / "waveform/open_ecg_waveform_audit.json").read_text())
+          index = json.loads((work / "model_index/open_ecg_model_index_audit.json").read_text())
+          observed = {
+              "label_manifest_sha256": manifest["manifest_sha256"],
+              "waveform_audit_sha256": waveform["audit_sha256"],
+              "normalization_stats_sha256": waveform["normalization_stats_sha256"],
+              "ptbxl_assignment_sha256": waveform["ptbxl_assignment_sha256"],
+              "model_index_sha256": index["index_sha256"],
+              "model_index_audit_sha256": index["audit_sha256"],
+              "label_codes": index["label_codes"],
+          }
+          for key, value in observed.items():
+              if activation[key] != value:
+                  raise SystemExit(f"Cached-state mismatch for {key}: {value!r}")
+          if index.get("challenge_ptbxl_model_input") is not False:
+              raise SystemExit("Challenge-renamed PTB-XL unexpectedly entered model input.")
+          print("Verified immutable cached evidence identity.")
+          PY
+
+      - name: Run unchanged resumable fixed ResNet segment
+        if: inputs.incoming_complete != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RESUME_ROOT" "$RESULTS_ROOT"
+          python scripts/run_open_ecg_resnet_resumable.py \
+            --primary-data-root "$DATA_ROOT" \
+            --model-index "$WORK_ROOT/model_index/open_ecg_model_index.csv" \
+            --model-index-audit "$WORK_ROOT/model_index/open_ecg_model_index_audit.json" \
+            --label-manifest "$EVIDENCE_ROOT/open_ecg_label_manifest.json" \
+            --waveform-audit "$WORK_ROOT/waveform/open_ecg_waveform_audit.json" \
+            --normalization-stats "$WORK_ROOT/waveform/open_ecg_normalization_stats.json" \
+            --output-root "$RESULTS_ROOT" \
+            --resume-checkpoint "$RESUME_ROOT/resnet_resume_state.pt" \
+            --status-output "$RESUME_ROOT/resnet_resume_status.json" \
+            --segment-seconds 14400 --device cpu --num-workers 0
+
+      - name: Derive recovery continuation and enforce exact SHA oracle
+        if: inputs.incoming_complete != 'true'
+        id: derive
+        run: |
+          python - "$RESUME_ROOT/resnet_resume_status.json" "$GITHUB_OUTPUT" <<'PY'
+          import json, os, sys
+          from pathlib import Path
+
+          status = json.loads(Path(sys.argv[1]).read_text())
+          segment = str(os.environ["SEGMENT_NUMBER"]).zfill(2)
+          token = os.environ["LAUNCH_TOKEN"]
+          if status["complete"]:
+              observed_model = status["model_sha256"]
+              observed_report = status["report_sha256"]
+              expected_model = os.environ["EXPECTED_MODEL_SHA"]
+              expected_report = os.environ["EXPECTED_REPORT_SHA"]
+              if observed_model != expected_model or observed_report != expected_report:
+                  raise SystemExit(
+                      "Completed primary FAILED exact identity oracle. "
+                      f"model={observed_model} report={observed_report}"
+                  )
+              result = (
+                  "trust-ecg-v04-authentic-recovery-" + token + "-"
+                  + expected_model[:20] + "-" + expected_report[:20]
+              )
+              next_key = ""
+          else:
+              result = ""
+              next_key = (
+                  "trust-ecg-v04-authentic-recovery-resume-" + token + "-s" + segment + "-"
+                  + status["resume_checkpoint_sha256"][:20]
+              )
+          with Path(sys.argv[2]).open("a", encoding="utf-8") as handle:
+              handle.write(f"complete={str(bool(status['complete'])).lower()}\n")
+              handle.write(f"next_cache_key={next_key}\n")
+              handle.write(f"result_cache_key={result}\n")
+              handle.write(f"phase={status['phase']}\n")
+              handle.write(f"best_epoch={status['best_epoch']}\n")
+          PY
+        env:
+          SEGMENT_NUMBER: ${{ inputs.segment_number }}
+          LAUNCH_TOKEN: ${{ inputs.launch_token }}
+
+      - name: Save recovery resume state without deleting predecessors
+        if: inputs.incoming_complete != 'true' && steps.derive.outputs.complete != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .trust_ecg_runtime/resume
+          key: ${{ steps.derive.outputs.next_cache_key }}
+
+      - name: Preserve exact-matched authentic primary
+        if: inputs.incoming_complete != 'true' && steps.derive.outputs.complete == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .trust_ecg_runtime/results
+          key: ${{ steps.derive.outputs.result_cache_key }}
+
+      - name: Publish reusable-workflow outputs
+        id: publish
+        run: |
+          if [ "${{ inputs.incoming_complete }}" = "true" ]; then
+            echo "complete=true" >> "$GITHUB_OUTPUT"
+            echo "next_cache_key=${{ inputs.incoming_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "result_cache_key=${{ inputs.incoming_result_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "phase=complete" >> "$GITHUB_OUTPUT"
+            echo "best_epoch=" >> "$GITHUB_OUTPUT"
+          else
+            echo "complete=${{ steps.derive.outputs.complete }}" >> "$GITHUB_OUTPUT"
+            echo "next_cache_key=${{ steps.derive.outputs.next_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "result_cache_key=${{ steps.derive.outputs.result_cache_key }}" >> "$GITHUB_OUTPUT"
+            echo "phase=${{ steps.derive.outputs.phase }}" >> "$GITHUB_OUTPUT"
+            echo "best_epoch=${{ steps.derive.outputs.best_epoch }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record recovery progress
+        if: inputs.incoming_complete != 'true'
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          status = json.loads((Path(os.environ["RESUME_ROOT"]) / "resnet_resume_status.json").read_text())
+          lines = [
+              "# TRUST-ECG exact-primary recovery segment",
+              "",
+              f"- Segment: **{os.environ['SEGMENT_NUMBER']}**",
+              f"- Complete: **{status['complete']}**",
+              f"- Phase: `{status['phase']}`",
+              f"- Epoch: **{status['epoch']}**",
+              f"- Epochs completed: **{status['epochs_completed']}**",
+              f"- Best epoch: **{status['best_epoch']}**",
+              f"- Best fold-8 macro PR-AUC: **{status['best_fold8_macro_pr_auc']}**",
+              "",
+              "A completed result is preserved only after full model and report SHA equality.",
+              "No Phase-1 workflow is invoked from this recovery path.",
+          ]
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines) + "\n")
+          PY
+        env:
+          SEGMENT_NUMBER: ${{ inputs.segment_number }}
