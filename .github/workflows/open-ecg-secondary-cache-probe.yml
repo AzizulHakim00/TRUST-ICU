@@ -5,6 +5,12 @@ on:
     branches: [secondary-resnet-validation]
     paths:
       - "triggers/trust-ecg-secondary-cache-probe.txt"
+  pull_request:
+    branches: [open-ecg-transportability]
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/open-ecg-secondary-cache-probe.yml"
+      - "triggers/trust-ecg-secondary-cache-probe.txt"
   workflow_dispatch:
 
 permissions:
