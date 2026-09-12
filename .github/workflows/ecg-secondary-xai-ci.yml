@@ -1,0 +1,39 @@
+name: TRUST-ECG Secondary XAI CI
+
+on:
+  pull_request:
+    paths:
+      - "src/trust_icu/ecg_secondary_xai.py"
+      - "tests/test_ecg_secondary_xai.py"
+      - ".github/workflows/ecg-secondary-xai-ci.yml"
+  push:
+    branches:
+      - secondary-resnet-validation
+    paths:
+      - "src/trust_icu/ecg_secondary_xai.py"
+      - "tests/test_ecg_secondary_xai.py"
+      - ".github/workflows/ecg-secondary-xai-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  direct-resnet-xai:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install direct ResNet/XAI runtime
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,ecg-deep]"
+      - name: Lint direct ResNet secondary XAI
+        run: |
+          ruff check src/trust_icu/ecg_secondary_xai.py tests/test_ecg_secondary_xai.py
+      - name: Run direct ResNet XAI tests with PyTorch
+        run: |
+          pytest tests/test_ecg_secondary_xai.py tests/test_ecg_resnet.py -q

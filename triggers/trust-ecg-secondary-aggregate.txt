@@ -1,0 +1,4 @@
+TRUST-ECG v0.4 secondary aggregate execution trigger
+primary statistical run: 34250970214
+phase0 report: 9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9
+phase1 report: 8075977689eda7af5798d048711685faa8b48a3df93e2742ce84225bb84a5e0a
