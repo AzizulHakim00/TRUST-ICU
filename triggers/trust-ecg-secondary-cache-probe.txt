@@ -1,2 +1,4 @@
-probe=2026-09-11T05:22:00+06:00
-purpose=verify feature branch can restore immutable v0.4 data and primary result caches
+probe=2026-09-13T03:00:00+06:00
+purpose=restore and hash-verify exact frozen v0.4 primary result cache only; no retraining or study-data dependency
+expected_model_sha256=1dc5a0ebbd7126ac8cd214c02e1faae456b5a8f0dd05f90f20877d7e8b749358
+expected_report_sha256=9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9
