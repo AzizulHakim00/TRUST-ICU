@@ -1,0 +1,117 @@
+name: TRUST-ECG Authentic Primary Reconstruction
+
+on:
+  push:
+    branches:
+      - ops/exact-primary-env-reconstruction-20260913
+    paths:
+      - "constraints/trust_ecg_v04_authentic_primary.txt"
+      - ".github/workflows/_open-ecg-resnet-authentic-recovery-segment.yml"
+      - ".github/workflows/open-ecg-authentic-primary-reconstruction.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: trust-ecg-authentic-primary-reconstruction-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  segment_01:
+    uses: ./.github/workflows/_open-ecg-resnet-authentic-recovery-segment.yml
+    with:
+      segment_number: "1"
+      incoming_complete: "false"
+      incoming_cache_key: ""
+      incoming_result_cache_key: ""
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_02:
+    needs: segment_01
+    if: ${{ always() && needs.segment_01.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-authentic-recovery-segment.yml
+    with:
+      segment_number: "2"
+      incoming_complete: ${{ needs.segment_01.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_01.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_01.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_03:
+    needs: segment_02
+    if: ${{ always() && needs.segment_02.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-authentic-recovery-segment.yml
+    with:
+      segment_number: "3"
+      incoming_complete: ${{ needs.segment_02.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_02.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_02.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_04:
+    needs: segment_03
+    if: ${{ always() && needs.segment_03.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-authentic-recovery-segment.yml
+    with:
+      segment_number: "4"
+      incoming_complete: ${{ needs.segment_03.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_03.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_03.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_05:
+    needs: segment_04
+    if: ${{ always() && needs.segment_04.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-authentic-recovery-segment.yml
+    with:
+      segment_number: "5"
+      incoming_complete: ${{ needs.segment_04.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_04.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_04.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  segment_06:
+    needs: segment_05
+    if: ${{ always() && needs.segment_05.result == 'success' }}
+    uses: ./.github/workflows/_open-ecg-resnet-authentic-recovery-segment.yml
+    with:
+      segment_number: "6"
+      incoming_complete: ${{ needs.segment_05.outputs.complete }}
+      incoming_cache_key: ${{ needs.segment_05.outputs.next_cache_key }}
+      incoming_result_cache_key: ${{ needs.segment_05.outputs.result_cache_key }}
+      expected_head_sha: ${{ github.sha }}
+      launch_token: ${{ github.run_id }}
+
+  exact_primary_required:
+    needs: segment_06
+    if: ${{ always() && needs.segment_06.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require exact authentic primary before any downstream use
+        env:
+          COMPLETE: ${{ needs.segment_06.outputs.complete }}
+          RESULT_CACHE_KEY: ${{ needs.segment_06.outputs.result_cache_key }}
+        run: |
+          set -euo pipefail
+          if [ "$COMPLETE" != "true" ]; then
+            echo "Authentic primary did not complete within the bounded recovery chain." >&2
+            exit 1
+          fi
+          case "$RESULT_CACHE_KEY" in
+            trust-ecg-v04-authentic-recovery-*-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68)
+              echo "Exact authentic model/report SHA oracle passed."
+              echo "Preserved cache: $RESULT_CACHE_KEY"
+              ;;
+            *)
+              echo "Unexpected recovery result cache key: $RESULT_CACHE_KEY" >&2
+              exit 1
+              ;;
+          esac
+          echo "No Phase-1 or secondary analysis is launched by this workflow."
