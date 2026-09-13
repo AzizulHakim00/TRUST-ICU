@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "run_open_ecg_secondary_seed_waveform.py"
 SPEC = importlib.util.spec_from_file_location("secondary_seed_waveform", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
