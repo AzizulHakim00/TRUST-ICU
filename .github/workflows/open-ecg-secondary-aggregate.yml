@@ -1,0 +1,90 @@
+name: TRUST-ECG Secondary Aggregate Evidence
+
+on:
+  push:
+    branches:
+      - secondary-resnet-validation
+    paths:
+      - "triggers/trust-ecg-secondary-aggregate.txt"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  aggregate-secondary-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PRIMARY_RUN_ID: "34250970214"
+      PRIMARY_ARTIFACT: "trust-ecg-statistical-addendum-34192937631"
+      EXPECTED_PHASE0_REPORT_SHA: "9287e6be55ac86885f688fed86929732e953e5f4dc6f728098b368e7d0333ad9"
+      EXPECTED_PHASE1_REPORT_SHA: "8075977689eda7af5798d048711685faa8b48a3df93e2742ce84225bb84a5e0a"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install lightweight secondary runtime
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Download verified primary statistical artifact
+        run: |
+          mkdir -p /tmp/trust_ecg_primary
+          gh run download "$PRIMARY_RUN_ID" \
+            --repo "${{ github.repository }}" \
+            --name "$PRIMARY_ARTIFACT" \
+            --dir /tmp/trust_ecg_primary
+          test -f /tmp/trust_ecg_primary/source_phase0_resnet_report.json
+          test -f /tmp/trust_ecg_primary/source_phase1_recovery_report.json
+      - name: Pin exact source reports before secondary analysis
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('/tmp/trust_ecg_primary')
+          phase0 = json.loads((root / 'source_phase0_resnet_report.json').read_text())
+          phase1 = json.loads((root / 'source_phase1_recovery_report.json').read_text())
+          assert phase0['report_sha256'] == os.environ['EXPECTED_PHASE0_REPORT_SHA']
+          assert phase1['report_sha256'] == os.environ['EXPECTED_PHASE1_REPORT_SHA']
+          print('Pinned primary reports verified.')
+          PY
+      - name: Assemble aggregate-only secondary evidence
+        run: |
+          python scripts/run_open_ecg_secondary_validation.py \
+            --phase0-report /tmp/trust_ecg_primary/source_phase0_resnet_report.json \
+            --phase1-report /tmp/trust_ecg_primary/source_phase1_recovery_report.json \
+            --output-root secondary_results/trust_ecg_v04
+      - name: Verify secondary manifest
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path('secondary_results/trust_ecg_v04')
+          manifest = json.loads((root / 'secondary_sha256_manifest.json').read_text())
+          for name, expected in manifest.items():
+              observed = hashlib.sha256((root / name).read_bytes()).hexdigest()
+              assert observed == expected, name
+          summary = json.loads((root / 'secondary_summary.json').read_text())
+          assert summary['primary_analysis_unchanged'] is True
+          assert summary['official_status_counts'] == {
+              'certified': 9,
+              'calibration_recovery_candidate': 9,
+              'discrimination_failure': 0,
+              'insufficient_support': 3,
+          }
+          print(json.dumps(summary['official_status_counts'], indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trust-ecg-secondary-aggregate-${{ github.run_id }}
+          path: secondary_results/trust_ecg_v04
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,2 @@
+TRUST-ECG v0.4 secondary aggregate execution trigger
+finish-first rerun: 2026-09-13
