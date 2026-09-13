@@ -4,14 +4,18 @@ on:
   pull_request:
     paths:
       - "src/trust_icu/ecg_secondary_xai.py"
+      - "scripts/run_open_ecg_secondary_seed_waveform.py"
       - "tests/test_ecg_secondary_xai.py"
+      - "tests/test_ecg_secondary_seed_waveform.py"
       - ".github/workflows/ecg-secondary-xai-ci.yml"
   push:
     branches:
       - secondary-resnet-validation
     paths:
       - "src/trust_icu/ecg_secondary_xai.py"
+      - "scripts/run_open_ecg_secondary_seed_waveform.py"
       - "tests/test_ecg_secondary_xai.py"
+      - "tests/test_ecg_secondary_seed_waveform.py"
       - ".github/workflows/ecg-secondary-xai-ci.yml"
 
 permissions:
@@ -33,7 +37,15 @@ jobs:
           pip install -e ".[dev,ecg-deep]"
       - name: Lint direct ResNet secondary XAI
         run: |
-          ruff check src/trust_icu/ecg_secondary_xai.py tests/test_ecg_secondary_xai.py
+          ruff check \
+            src/trust_icu/ecg_secondary_xai.py \
+            scripts/run_open_ecg_secondary_seed_waveform.py \
+            tests/test_ecg_secondary_xai.py \
+            tests/test_ecg_secondary_seed_waveform.py
       - name: Run direct ResNet XAI tests with PyTorch
         run: |
-          pytest tests/test_ecg_secondary_xai.py tests/test_ecg_resnet.py -q
+          pytest \
+            tests/test_ecg_secondary_xai.py \
+            tests/test_ecg_secondary_seed_waveform.py \
+            tests/test_ecg_resnet.py \
+            -q
