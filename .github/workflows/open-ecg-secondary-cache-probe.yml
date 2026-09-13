@@ -1,4 +1,4 @@
-name: TRUST-ECG Secondary Frozen Primary Cache Probe
+name: TRUST-ECG Secondary Frozen Primary Retention Audit
 
 on:
   push:
@@ -18,7 +18,7 @@ permissions:
   actions: read
 
 jobs:
-  probe-frozen-primary:
+  audit-frozen-primary-retention:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -27,18 +27,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore exact frozen primary result only
+      - name: Probe exact frozen primary result only
         id: primary_cache
         uses: actions/cache/restore@v4
         with:
           path: .trust_ecg_runtime/results
           key: trust-ecg-v04-primary-result-1dc5a0ebbd7126ac8cd2-9287e6be55ac86885f68
-          fail-on-cache-miss: true
+          fail-on-cache-miss: false
 
-      - name: Verify frozen primary identity
+      - name: Verify frozen primary identity when retained
+        if: steps.primary_cache.outputs.cache-hit == 'true'
         run: |
           set -euo pipefail
-          test "${{ steps.primary_cache.outputs.cache-hit }}" = "true"
           test -f .trust_ecg_runtime/results/open_ecg_phase0_resnet_report.json
           test -f .trust_ecg_runtime/results/open_ecg_resnet_checkpoint.pt
           test -f .trust_ecg_runtime/results/open_ecg_resnet_calibration.json
@@ -73,14 +73,27 @@ jobs:
           print('epochs_completed=' + str(history.get('epochs_completed', history.get('epochs_ran'))))
           PY
 
-      - name: Record recovery proof
-        if: success()
+      - name: Record retained exact checkpoint
+        if: steps.primary_cache.outputs.cache-hit == 'true'
         run: |
           {
-            echo "# Frozen primary recovery proof"
+            echo "# Frozen primary retention audit"
             echo
-            echo "- Cache hit: **true**"
+            echo "- Retained cache: **available and exact**"
             echo "- Model SHA-256: \`$EXPECTED_MODEL_SHA\`"
             echo "- Primary report SHA-256: \`$EXPECTED_REPORT_SHA\`"
             echo "- No retraining or study-data reconstruction was performed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record expired retention without substitution
+        if: steps.primary_cache.outputs.cache-hit != 'true'
+        run: |
+          {
+            echo "# Frozen primary retention audit"
+            echo
+            echo "- Retained cache: **unavailable (expired/not retained)**"
+            echo "- Frozen historical model identity remains: \`$EXPECTED_MODEL_SHA\`"
+            echo "- Frozen historical report identity remains: \`$EXPECTED_REPORT_SHA\`"
+            echo "- This audit does not retrain, reconstruct, or substitute a primary model."
+            echo "- Model-dependent secondary analyses require an independently retained exact checkpoint and are otherwise reported as unavailable."
           } >> "$GITHUB_STEP_SUMMARY"
